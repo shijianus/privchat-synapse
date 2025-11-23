@@ -1,0 +1,29 @@
+[
+    {
+        "provider_name": "X",
+        "provider_url": "https://x.com/",
+        "endpoints": [
+            {
+                "schemes": [
+                    "https://x.com/*",
+                    "https://x.com/*/status/*",
+                    "https://*.x.com/*/status/*"
+                ],
+                "url": "https://publish.x.com/oembed"
+            }
+        ]
+    },
+    {
+        "provider_name": "YouTube Shorts",
+        "provider_url": "http://www.youtube.com/",
+        "endpoints": [
+            {
+                "schemes": [
+                    "https://youtube.com/shorts/*",
+                    "https://*.youtube.com/shorts/*"
+                ],
+                "url": "https://www.youtube.com/oembed"
+            }
+        ]
+    }
+]
