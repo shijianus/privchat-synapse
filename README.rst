@@ -34,6 +34,242 @@ which can be used to customise its behaviour after installation.
 There are additional details on how to `configure Synapse for federation here
 <https://element-hq.github.io/synapse/latest/federate.html>`_.
 
+🎛️ Dashboard Integration Setup
+===============================
+
+This Private Chat Synapse fork includes a comprehensive Dashboard integration system for user management, risk control, and administrative features.
+
+**Dashboard Integration Features:**
+
+* **User Risk Control**: Four-tier enforcement system (none, silence, soft_ban, hard_ban)
+* **Real-time Policy Enforcement**: Integrated into login and messaging flows
+* **Administrative Management**: External dashboard with shared database architecture
+* **Caching Layer**: High-performance in-memory cache with Redis pub/sub support
+* **Safety-First Design**: All features disabled by default, degrade gracefully
+
+**Prerequisites:**
+
+* PostgreSQL 12+ (for core Synapse and dashboard schema)
+* Redis 6+ (for caching and pub/sub messaging)
+* Python 3.10+
+* Rust toolchain (for building native extensions)
+
+**Installation Methods:**
+
+Method 1: Using Poetry (Recommended)
+------------------------------------
+
+.. code-block:: bash
+
+   # Clone the repository
+   git clone https://github.com/your-org/synapse.git
+   cd synapse
+
+   # Install dependencies
+   poetry install
+
+   # Build Rust components
+   python build_rust.py
+
+   # Generate initial configuration
+   poetry run python -m synapse.app.homeserver \
+     --server-name your-domain.com \
+     --config-path homeserver.yaml \
+     --generate-config
+
+   # Edit homeserver.yaml to enable dashboard
+   # (see configuration section below)
+
+   # Run the server
+   poetry run python -m synapse.app.homeserver --config-path homeserver.yaml
+
+Method 2: Using Docker
+----------------------
+
+.. code-block:: bash
+
+   # Build Docker image
+   docker build -t private-chat-synapse:latest .
+
+   # Generate configuration
+   docker run --rm -v $(pwd)/data:/data \
+     private-chat-synapse:latest generate
+
+   # Start with dashboard enabled
+   docker run -d -p 8008:8008 \
+     -v $(pwd)/data:/data \
+     -e SYNAPSE_CONFIG_PATH=/data/homeserver.yaml \
+     private-chat-synapse:latest run
+
+**Dashboard Configuration:**
+
+Add the following section to your ``homeserver.yaml``:
+
+.. code-block:: yaml
+
+   # Dashboard Integration Configuration
+   dashboard:
+     # Enable/disable dashboard integration
+     enabled: true
+
+     # Redis configuration for caching and pub/sub
+     redis:
+       # Redis server connection
+       host: localhost
+       port: 6379
+       password: your-redis-password
+       database: 0
+
+       # Pub/sub channel for user events
+       channel_user_events: "user_events"
+
+       # Cache TTL in seconds
+       default_cache_ttl: 300
+
+     # Database configuration for dashboard schema
+     database:
+       # Dashboard database connection (uses same as main if not specified)
+       connection_string: "postgresql://user:password@localhost/synapse?sslmode=disable"
+       schema_name: "dashboard"
+
+     # Risk control settings
+     risk_control:
+       # Enable automatic risk control enforcement
+       auto_enforce: true
+
+       # Default ban reasons for different levels
+       default_reasons:
+         silence: "User has been silenced by moderators"
+         soft_ban: "User has been temporarily banned"
+         hard_ban: "User has been permanently banned"
+
+       # Appeal system settings
+       appeals:
+         enabled: true
+         bot_user_id: "@admin-bot:your-domain.com"
+         max_appeals_per_ban: 3
+         appeal_cooldown_hours: 24
+
+**Database Schema Setup:**
+
+The dashboard integration requires additional database tables. Run the migration script:
+
+.. code-block:: bash
+
+   # Using psql (recommended)
+   psql -d synapse -f migrations/001_dashboard_schema.sql
+
+   # Or using the built-in migration tool
+   poetry run python -m synapse._scripts.update_synapse_database \
+     --config-path homeserver.yaml \
+     --run-migration dashboard
+
+**Redis Configuration:**
+
+Configure Redis for optimal performance:
+
+.. code-block:: redis
+
+   # Basic Redis configuration (redis.conf)
+   maxmemory 2gb
+   maxmemory-policy allkeys-lru
+
+   # Enable persistence
+   save 900 1
+   save 300 10
+   save 60 10000
+
+   # Pub/sub optimizations
+   notify-keyspace-events Ex
+
+**Integration Testing:**
+
+Test your dashboard integration:
+
+.. code-block:: bash
+
+   # Test dashboard is enabled
+   curl -s http://localhost:8008/_synapse/admin/v1/dashboard/status | jq
+
+   # Test user risk control
+   curl -X POST \
+     -H "Authorization: Bearer YOUR_ADMIN_TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"user_id": "@test:your-domain.com", "ban_type": "silence", "reason": "Testing"}' \
+     http://localhost:8008/_synapse/admin/v1/dashboard/users/@test:your-domain.com/risk_control
+
+   # Check user can still login (silenced users can login)
+   curl -X POST \
+     -H "Content-Type: application/json" \
+     -d '{"type": "m.login.password", "user": "test", "password": "test"}' \
+     http://localhost:8008/_matrix/client/r0/login
+
+**Production Deployment:**
+
+For production deployments, consider these additional configurations:
+
+.. code-block:: yaml
+
+   # Production dashboard settings
+   dashboard:
+     enabled: true
+
+     redis:
+       # Use Redis cluster for high availability
+       cluster_nodes:
+         - host: redis-1.your-domain.com
+           port: 6379
+         - host: redis-2.your-domain.com
+           port: 6379
+         - host: redis-3.your-domain.com
+           port: 6379
+
+       # Connection pooling
+       pool_size: 20
+       max_connections: 100
+
+     # Monitoring and metrics
+     monitoring:
+       # Enable Prometheus metrics
+       prometheus_enabled: true
+       metrics_port: 9100
+
+       # Health check endpoint
+       health_check_interval: 30
+
+     # Security settings
+     security:
+       # Rate limiting for dashboard API calls
+       rate_limit:
+         requests_per_minute: 60
+         burst_size: 10
+
+       # Audit logging
+       audit_log:
+         enabled: true
+         log_file: /var/log/synapse/dashboard_audit.log
+         include_sensitive_data: false
+
+**Troubleshooting Dashboard Integration:**
+
+Common issues and solutions:
+
+1. **Dashboard not enabled**: Check ``dashboard.enabled: true`` in config
+2. **Redis connection failed**: Verify Redis server is running and accessible
+3. **Database schema missing**: Run migration scripts
+4. **Cache not updating**: Check Redis pub/sub channel configuration
+
+Debug logging for dashboard integration:
+
+.. code-block:: yaml
+
+   log_config: "/path/to/log_config.yaml"
+
+   # In your log config file:
+   loggers:
+     synapse.dashboard_integration:
+       level: DEBUG
+
 .. _reverse-proxy:
 
 Using a reverse proxy with Synapse

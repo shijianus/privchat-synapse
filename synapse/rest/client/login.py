@@ -429,6 +429,16 @@ class LoginRestServlet(RestServlet):
             if locked:
                 raise UserLockedError()
 
+        # DASHBOARD INTEGRATION: enforce dashboard bans/controls on login
+        integration = self.hs.get_dashboard_integration()
+        allowed, reason = integration.check_login_allowed(user_id)
+        if not allowed:
+            raise LoginError(
+                403,
+                reason or "Login blocked by server policy",
+                errcode=Codes.FORBIDDEN,
+            )
+
         device_id = login_submission.get("device_id")
 
         # If device_id is present, check that device_id is not longer than a reasonable 512 characters

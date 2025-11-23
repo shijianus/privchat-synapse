@@ -47,6 +47,7 @@ from .password_auth_providers import PasswordAuthProviderConfig
 from .push import PushConfig
 from .ratelimiting import RatelimitConfig
 from .redis import RedisConfig
+from .dashboard import DashboardConfig  # DASHBOARD INTEGRATION
 from .registration import RegistrationConfig
 from .repository import ContentRepositoryConfig
 from .retention import RetentionConfig
@@ -113,6 +114,7 @@ class HomeServerConfig(RootConfig):
         TracerConfig,
         WorkerConfig,
         RedisConfig,
+        DashboardConfig,  # DASHBOARD INTEGRATION
         ExperimentalConfig,
         BackgroundUpdateConfig,
         AutoAcceptInvitesConfig,
