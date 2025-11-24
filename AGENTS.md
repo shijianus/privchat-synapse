@@ -3,39 +3,39 @@
 This repository contains Synapse, the Matrix homeserver. Use this guide for day‑to‑day development, testing, and contributions.
 
 ## Project Structure & Module Organization
-- Core server: `synapse/` (Python package)
+- Core server code: `synapse/` (Python package)
 - Tests: `tests/` (Twisted Trial test suite)
-- Rust extension: `rust/` (built via maturin; loaded as `synapse.synapse_rust`)
+- Rust extension: `rust/` (built via `maturin`; loaded as `synapse.synapse_rust`)
 - Docs and guides: `docs/`
-- Dev tooling and scripts: `scripts-dev/`
-- Packaging/build config: `pyproject.toml`, `poetry.lock`, `tox.ini`
+- Dev scripts: `scripts-dev/`
+- Build/config: `pyproject.toml`, `poetry.lock`, `tox.ini`
 
 ## Build, Test, and Development Commands
 - Install (dev + extras): `poetry install --with dev -E all`
-- Lint (ruff): `poetry run ruff check .` and format: `poetry run ruff format .`
-- Type check (mypy): `poetry run mypy`
-- Run tests (tox + Trial): `poetry run tox -e py311` or `poetry run trial tests`
-- Benchmark (optional): `poetry run tox -e benchmark`
-- Build sdists/wheels: `poetry build`
+- Lint: `poetry run ruff check .`  • Format: `poetry run ruff format .`
+- Type check: `poetry run mypy`
+- Run tests (tox): `poetry run tox -e py311`  • Quick run: `poetry run trial tests`
+- Benchmarks (optional): `poetry run tox -e benchmark`
+- Build packages: `poetry build`
 
 ## Coding Style & Naming Conventions
-- Python 3.10+; line length 88; double quotes; 4‑space indent.
-- Use type hints; keep functions small and well‑documented (Google‑style docstrings).
+- Python 3.10+; 4‑space indent; line length 88; double quotes.
+- Use type hints and Google‑style docstrings. Keep functions small and focused.
 - Naming: `CamelCase` for classes/types; `snake_case` for functions/variables.
-- Imports sorted by ruff‑isort sections (notably a dedicated `twisted` section). Prefer importing symbols over modules.
+- Imports sorted via ruff‑isort (Twisted has its own section). Prefer importing symbols over modules.
 
 ## Testing Guidelines
-- Framework: Twisted Trial. Place tests under `tests/` using `test_*.py` naming.
+- Framework: Twisted Trial. Name tests `tests/test_*.py`.
 - Fast local run: `poetry run trial tests/path/to/test_file.py`.
-- Tox drives CI‑like runs and coverage; prefer `poetry run tox` before opening a PR.
-- For Postgres‑backed tests, set `SYNAPSE_POSTGRES=1` (supported tox factor).
+- CI‑like runs and coverage via tox: `poetry run tox`.
+- Postgres tests: set `SYNAPSE_POSTGRES=1` (tox factor supported).
 
 ## Commit & Pull Request Guidelines
-- Commits: short, imperative subject; include issue/PR reference when applicable (e.g., `Fix login rate limiting (#1234)`).
-- PRs: include a clear description, linked issues, test coverage for changes, and documentation updates when behavior/config changes.
-- Changelog: add a Towncrier fragment under `changelog.d/` (types: `feature`, `bugfix`, `doc`, `removal`, `misc`).
+- Commits: short, imperative subject; reference issues/PRs when relevant (e.g., `Fix login rate limiting (#1234)`).
+- PRs: include clear description, linked issues, tests for changes, and docs when behavior/config changes.
+- Changelog: add a Towncrier fragment under `changelog.d/` (`feature`, `bugfix`, `doc`, `removal`, `misc`).
 
 ## Security & Configuration Tips
-- Never commit secrets or real keys; use sample configs in `docs/sample_config.yaml` and `docs/sample_log_config.yaml`.
-- Local runs use the `synapse_homeserver` entrypoint (see docs) and generated config via `generate_config`.
+- Do not commit secrets. Use sample configs: `docs/sample_config.yaml`, `docs/sample_log_config.yaml`.
+- Local runs use the `synapse_homeserver` entrypoint; generate config with `generate_config` (see docs).
 

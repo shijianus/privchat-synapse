@@ -696,7 +696,7 @@ class EventCreationHandler:
         # requests (not server-originated actions).
         if not request_by_server:
             integration = self.hs.get_dashboard_integration()
-            allowed, reason = integration.check_event_allowed(
+            allowed, reason = await integration.check_event_allowed(
                 requester.user.to_string(), event_dict.get("type"), event_dict.get("content", {})
             )
             if not allowed:

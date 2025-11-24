@@ -1824,3 +1824,7 @@ For any questions about code standards, please contact project maintainers or ra
 ### 14.4 Technical Watermark
 
 Allowed to use maintainer, administrator, and studio names as core variable names. For differentiation, code can be written from different perspectives (using different styles).
+
+### 15.1 Essential Reading
+
+If you have any uncertainties while reviewing the REQUEST.md document, prioritize asking the user for clarification on the actual steps to take. For specific requirements, refer to the REQUEST.md in detail. Please pay attention to configuration compatibility issues and make sure to read the ATTENTION.md file. Finally, to understand known or recommended configuration methods, review the ADVICE.md and GUIDE.md documents.

@@ -27,6 +27,17 @@ class DashboardConfig(Config):
             raise ConfigError("`dashboard` must be a mapping", ("dashboard",))
 
         # Optional: TTLs or Redis channel names can be added here later.
-        self.redis_channel_user_events: str | None = dash.get("redis_channel_user_events")
+        # DASHBOARD INTEGRATION: 订阅频道支持单值或列表
+        channels = dash.get("redis_channel_user_events")
+        if channels is None:
+            self.redis_channel_user_events: list[str] = []
+        elif isinstance(channels, str):
+            self.redis_channel_user_events = [channels]
+        elif isinstance(channels, list) and all(isinstance(item, str) for item in channels):
+            self.redis_channel_user_events = channels
+        else:
+            raise ConfigError(
+                "`dashboard.redis_channel_user_events` must be a string or list of strings",
+                ("dashboard", "redis_channel_user_events"),
+            )
         self.default_cache_ttl_seconds: int = int(dash.get("default_cache_ttl_seconds", 300))
-

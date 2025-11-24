@@ -431,7 +431,7 @@ class LoginRestServlet(RestServlet):
 
         # DASHBOARD INTEGRATION: enforce dashboard bans/controls on login
         integration = self.hs.get_dashboard_integration()
-        allowed, reason = integration.check_login_allowed(user_id)
+        allowed, reason = await integration.check_login_allowed(user_id)
         if not allowed:
             raise LoginError(
                 403,
