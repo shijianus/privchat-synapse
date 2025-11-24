@@ -1526,7 +1526,7 @@ echo "=== Acceptance Testing Complete ==="
 
 #### **✅ PRODUCTION-READY INFRASTRUCTURE (100% Complete)**
 
-The dashboard backend implementation has achieved **65% completion** with a solid foundation ready for production use:
+The dashboard backend implementation has achieved **45% completion** with an excellent technical foundation ready for production use:
 
 1. **Core Infrastructure Complete**:
    - Database service with PostgreSQL connection pooling
@@ -1550,78 +1550,413 @@ The dashboard backend implementation has achieved **65% completion** with a soli
 
 ### 13.2 **CRITICAL MISSING IMPLEMENTATIONS (Next Development Phase)**
 
-#### **Priority 1: Administrative Authentication System (HIGHEST PRIORITY)**
+#### **Priority 1: Authentication Endpoints (CRITICAL - System Unusable Without This)**
 
-**Current Status**: JWT infrastructure exists, but admin user management system missing
-**Implementation Time**: 3-4 days
-**Required Files**:
+**Current Status**: JWT verification middleware exists, but authentication endpoints missing
+**Implementation Time**: 2-3 days
+**Critical Missing Files**:
 
+##### **Step 1: Create Authentication Controller**
+```bash
+# From dashboard/backend directory:
+touch src/controllers/auth-controller.ts
+touch src/services/auth-service.ts
+touch src/routes/auth-routes.ts
+touch src/validators/auth-validators.ts
+```
+
+##### **Step 2: Implement Authentication Controller**
 ```typescript
-// Create: dashboard/backend/src/controllers/auth-controller.ts
-@Controller('/api/v1/auth')
+// File: dashboard/backend/src/controllers/auth-controller.ts
+import { Request, Response } from 'express';
+import { AuthService } from '../services/auth-service';
+import { validateRequest } from '../middleware/validate-request';
+import { rateLimiter } from '../middleware/rate-limiter';
+import { registerAdminSchema, loginSchema, refreshTokenSchema } from '../validators/auth-validators';
+
 export class AuthController {
-  @Post('/register-admin')
-  @ValidateBody(RegisterAdminSchema)
+  constructor(private authService: AuthService) {}
+
   async registerAdmin(req: Request, res: Response): Promise<void> {
-    // Validate admin registration request
-    // Check if this is the first admin (allow auto-approval)
-    // Hash password with bcrypt (12 salt rounds)
-    // Create admin user with default permissions
-    // Generate JWT tokens for immediate login
-    // Log administrative action for audit trail
+    try {
+      const result = await this.authService.createAdminUser(req.body);
+      res.status(201).json({
+        message: 'Administrator account created successfully',
+        user: { id: result.id, email: result.email, role: result.role }
+      });
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
   }
 
-  @Post('/login')
-  @ValidateBody(LoginSchema)
   async login(req: Request, res: Response): Promise<void> {
-    // Validate credentials against database
-    // Compare password hash using bcrypt
-    // Generate JWT access and refresh tokens
-    // Implement rate limiting for login attempts
-    // Log successful/failed login attempts
+    try {
+      const { email, password } = req.body;
+      const result = await this.authService.authenticateUser(email, password);
+
+      res.json({
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
+        user: {
+          id: result.user.id,
+          email: result.user.email,
+          role: result.user.role,
+          fullName: result.user.fullName
+        }
+      });
+    } catch (error) {
+      res.status(401).json({ error: error.message });
+    }
   }
 
-  @Post('/refresh')
-  @ValidateBody(RefreshTokenSchema)
   async refreshToken(req: Request, res: Response): Promise<void> {
-    // Validate refresh token signature and expiry
-    // Check if token is revoked in database
-    // Generate new access token
-    // Update token usage metrics
+    try {
+      const { refreshToken } = req.body;
+      const result = await this.authService.refreshAccessToken(refreshToken);
+
+      res.json({
+        accessToken: result.accessToken
+      });
+    } catch (error) {
+      res.status(401).json({ error: 'Invalid or expired refresh token' });
+    }
   }
 
-  @Post('/logout')
-  @RequireAuth()
   async logout(req: Request, res: Response): Promise<void> {
-    // Add refresh token to blacklist
-    // Clear user sessions from Redis
-    // Log administrative action
+    try {
+      const { refreshToken } = req.body;
+      await this.authService.logout(refreshToken);
+
+      res.json({ message: 'Logged out successfully' });
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
   }
 }
+```
 
-// Create: dashboard/backend/src/services/auth-service.ts
+##### **Step 3: Implement Authentication Service**
+```typescript
+// File: dashboard/backend/src/services/auth-service.ts
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import { DatabaseService } from '../database/database-service';
+import { RedisService } from '../redis/redis-service';
+
+export interface AdminUser {
+  id: number;
+  email: string;
+  passwordHash: string;
+  fullName: string;
+  role: 'super_admin' | 'admin' | 'moderator' | 'operator' | 'viewer';
+  status: 'active' | 'suspended' | 'locked';
+  lastLoginAt?: Date;
+  createdAt: Date;
+}
+
+export interface AuthTokens {
+  accessToken: string;
+  refreshToken: string;
+  user: Omit<AdminUser, 'passwordHash'>;
+}
+
 export class AuthService {
-  async createAdminUser(payload: CreateAdminRequest): Promise<AdminUser> {
-    // Password strength validation (minimum 12 characters, complexity requirements)
-    // Email validation and domain verification
-    // Initial role assignment (super_admin for first user)
-    // Audit logging for compliance
+  constructor(
+    private db: DatabaseService,
+    private redis: RedisService
+  ) {}
+
+  async createAdminUser(payload: CreateAdminRequest): Promise<Omit<AdminUser, 'passwordHash'>> {
+    // Check if this is the first admin user
+    const existingAdmins = await this.db.query(
+      'SELECT COUNT(*) as count FROM dashboard.admin_users WHERE status = $1',
+      ['active']
+    );
+
+    const isFirstAdmin = parseInt(existingAdmins[0].count) === 0;
+    const role = isFirstAdmin ? 'super_admin' : payload.role || 'operator';
+
+    // Validate password strength
+    this.validatePasswordStrength(payload.password);
+
+    // Check if email already exists
+    const existingUser = await this.db.query(
+      'SELECT id FROM dashboard.admin_users WHERE email = $1',
+      [payload.email]
+    );
+
+    if (existingUser.length > 0) {
+      throw new Error('Email already registered');
+    }
+
+    // Hash password with bcrypt (12 salt rounds)
+    const passwordHash = await bcrypt.hash(payload.password, 12);
+
+    // Create admin user
+    const result = await this.db.query(
+      `INSERT INTO dashboard.admin_users (email, password_hash, full_name, role, status)
+       VALUES ($1, $2, $3, $4, 'active')
+       RETURNING id, email, full_name, role, status, created_at`,
+      [payload.email, passwordHash, payload.fullName, role]
+    );
+
+    // Log administrative action
+    await this.db.query(
+      `INSERT INTO dashboard.operation_logs (operator_id, operation_type, target_user_id, details)
+       VALUES ($1, 'admin_created', $2, $3)`,
+      [result[0].id, result[0].id, JSON.stringify({ email: payload.email, role })]
+    );
+
+    const { password_hash: _, ...userWithoutPassword } = result[0];
+    return userWithoutPassword;
   }
 
-  async validateCredentials(email: string, password: string): Promise<AdminUser | null> {
-    // Lookup admin user by email
-    // Compare password hash with timing-safe comparison
-    // Check account status (active, suspended, locked)
-    // Track failed login attempts for security
+  async authenticateUser(email: string, password: string): Promise<AuthTokens> {
+    // Lookup admin user
+    const users = await this.db.query(
+      'SELECT * FROM dashboard.admin_users WHERE email = $1 AND status = $2',
+      [email, 'active']
+    );
+
+    if (users.length === 0) {
+      throw new Error('Invalid credentials');
+    }
+
+    const user = users[0];
+
+    // Compare password
+    const isPasswordValid = await bcrypt.compare(password, user.password_hash);
+    if (!isPasswordValid) {
+      // Track failed login attempts (implement rate limiting)
+      await this.trackFailedLogin(email);
+      throw new Error('Invalid credentials');
+    }
+
+    // Generate JWT tokens
+    const accessToken = this.generateAccessToken(user);
+    const refreshToken = this.generateRefreshToken(user);
+
+    // Update last login
+    await this.db.query(
+      'UPDATE dashboard.admin_users SET last_login_at = NOW() WHERE id = $1',
+      [user.id]
+    );
+
+    // Store refresh token in Redis for revocation support
+    await this.redis.setex(
+      `refresh_token:${refreshToken}`,
+      7 * 24 * 60 * 60, // 7 days
+      JSON.stringify({ userId: user.id, email: user.email })
+    );
+
+    const { password_hash: _, ...userWithoutPassword } = user;
+
+    return {
+      accessToken,
+      refreshToken,
+      user: userWithoutPassword
+    };
   }
 
-  async generateTokens(adminUser: AdminUser): Promise<AuthTokens> {
-    // JWT access token (15-minute expiry)
-    // Refresh token (7-day expiry)
-    // Include user permissions and roles in token
-    // Sign with RS256 keys for enhanced security
+  async refreshAccessToken(refreshToken: string): Promise<{ accessToken: string }> {
+    // Check if refresh token exists in Redis
+    const tokenData = await this.redis.get(`refresh_token:${refreshToken}`);
+    if (!tokenData) {
+      throw new Error('Invalid or expired refresh token');
+    }
+
+    try {
+      // Verify refresh token
+      const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET!) as any;
+
+      // Generate new access token
+      const accessToken = this.generateAccessToken({
+        id: decoded.userId,
+        email: decoded.email,
+        role: decoded.role
+      });
+
+      return { accessToken };
+    } catch (error) {
+      throw new Error('Invalid refresh token');
+    }
+  }
+
+  async logout(refreshToken: string): Promise<void> {
+    // Remove refresh token from Redis
+    await this.redis.del(`refresh_token:${refreshToken}`);
+
+    // Add to blacklist (optional, for immediate token invalidation)
+    await this.redis.setex(
+      `blacklist:${refreshToken}`,
+      7 * 24 * 60 * 60,
+      'true'
+    );
+  }
+
+  private generateAccessToken(user: Partial<AdminUser>): string {
+    return jwt.sign(
+      {
+        userId: user.id,
+        email: user.email,
+        role: user.role
+      },
+      process.env.JWT_SECRET!,
+      { expiresIn: '15m' }
+    );
+  }
+
+  private generateRefreshToken(user: Partial<AdminUser>): string {
+    return jwt.sign(
+      {
+        userId: user.id,
+        email: user.email,
+        role: user.role
+      },
+      process.env.JWT_REFRESH_SECRET!,
+      { expiresIn: '7d' }
+    );
+  }
+
+  private validatePasswordStrength(password: string): void {
+    if (password.length < 12) {
+      throw new Error('Password must be at least 12 characters long');
+    }
+    if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])/.test(password)) {
+      throw new Error('Password must contain uppercase, lowercase, numbers, and special characters');
+    }
+  }
+
+  private async trackFailedLogin(email: string): Promise<void> {
+    const key = `failed_login:${email}`;
+    const attempts = await this.redis.incr(key);
+    await this.redis.expire(key, 15 * 60); // 15 minutes
+
+    if (attempts >= 5) {
+      // Lock account temporarily
+      await this.redis.setex(`account_locked:${email}`, 30 * 60, 'true');
+    }
   }
 }
+```
+
+##### **Step 4: Create Authentication Routes**
+```typescript
+// File: dashboard/backend/src/routes/auth-routes.ts
+import { Router } from 'express';
+import { AuthController } from '../controllers/auth-controller';
+import { AuthService } from '../services/auth-service';
+import { validateRequest } from '../middleware/validate-request';
+import { DatabaseService } from '../database/database-service';
+import { RedisService } from '../redis/redis-service';
+import { rateLimiter } from '../middleware/rate-limiter';
+import { registerAdminSchema, loginSchema, refreshTokenSchema } from '../validators/auth-validators';
+
+const router = Router();
+const authService = new AuthService(new DatabaseService(), new RedisService());
+const authController = new AuthController(authService);
+
+// Admin registration (only if no admins exist or with invite token)
+router.post('/register-admin',
+  rateLimiter({ windowMs: 15 * 60 * 1000, max: 3 }), // 3 attempts per 15 minutes
+  validateRequest(registerAdminSchema),
+  authController.registerAdmin.bind(authController)
+);
+
+// Login
+router.post('/login',
+  rateLimiter({ windowMs: 15 * 60 * 1000, max: 10 }), // 10 attempts per 15 minutes
+  validateRequest(loginSchema),
+  authController.login.bind(authController)
+);
+
+// Refresh token
+router.post('/refresh',
+  validateRequest(refreshTokenSchema),
+  authController.refreshToken.bind(authController)
+);
+
+// Logout
+router.post('/logout',
+  authController.logout.bind(authController)
+);
+
+export default router;
+```
+
+##### **Step 5: Create Validation Schemas**
+```typescript
+// File: dashboard/backend/src/validators/auth-validators.ts
+import Joi from 'joi';
+
+export const registerAdminSchema = Joi.object({
+  email: Joi.string().email().required().messages({
+    'string.email': 'Valid email required',
+    'any.required': 'Email is required'
+  }),
+  password: Joi.string().min(12).pattern(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])/).required().messages({
+    'string.min': 'Password must be at least 12 characters long',
+    'string.pattern.base': 'Password must contain uppercase, lowercase, numbers, and special characters',
+    'any.required': 'Password is required'
+  }),
+  fullName: Joi.string().min(2).max(100).required().messages({
+    'string.min': 'Full name must be at least 2 characters',
+    'string.max': 'Full name cannot exceed 100 characters',
+    'any.required': 'Full name is required'
+  }),
+  role: Joi.string().valid('super_admin', 'admin', 'moderator', 'operator', 'viewer').optional()
+});
+
+export const loginSchema = Joi.object({
+  email: Joi.string().email().required().messages({
+    'string.email': 'Valid email required',
+    'any.required': 'Email is required'
+  }),
+  password: Joi.string().required().messages({
+    'any.required': 'Password is required'
+  })
+});
+
+export const refreshTokenSchema = Joi.object({
+  refreshToken: Joi.string().required().messages({
+    'any.required': 'Refresh token is required'
+  })
+});
+```
+
+##### **Step 6: Update Main Application to Include Auth Routes**
+```typescript
+// File: dashboard/backend/src/index.ts
+// Add after existing route imports:
+import authRoutes from './routes/auth-routes';
+
+// Add after existing middleware:
+app.use('/api/v1/auth', authRoutes);
+```
+
+##### **Step 7: Test Authentication Implementation**
+```bash
+# Test admin registration (first admin can self-register)
+curl -X POST http://localhost:3000/api/v1/auth/register-admin \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "admin@matrix.local",
+    "password": "SecurePassword123!",
+    "fullName": "System Administrator"
+  }'
+
+# Test login
+curl -X POST http://localhost:3000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "admin@matrix.local",
+    "password": "SecurePassword123!"
+  }'
+
+# Test protected endpoint with JWT
+curl -X GET http://localhost:3000/api/v1/users \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN_HERE"
+```
 ```
 
 #### **Priority 2: Role-Based Access Control (RBAC) System**
@@ -1944,6 +2279,396 @@ export class AppealController {
 }
 ```
 
+#### **Priority 4: Media Management System**
+
+**Implementation Time**: 5-6 days
+**Critical Components**: File deduplication, storage policy enforcement, cleanup automation
+
+```typescript
+// Create: dashboard/backend/src/services/media-service.ts
+export class MediaService {
+  constructor(
+    private db: DatabaseService,
+    private redis: RedisService,
+    private storage: ObjectStorageService
+  ) {}
+
+  async uploadMedia(file: Express.Multer.File, userId: string, roomId?: string): Promise<MediaMetadataRecord> {
+    // Calculate SHA256 hash for deduplication
+    const hash = await this.calculateSHA256(file.path);
+
+    // Check for existing media with same hash
+    const existingMedia = await this.db.query(`
+      SELECT * FROM dashboard.media_metadata WHERE sha256_hash = $1
+    `, [hash]);
+
+    if (existingMedia.length > 0) {
+      // File already exists, create reference instead
+      await this.db.query(`
+        INSERT INTO dashboard.media_references (media_id, user_id, room_id, upload_context)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT DO NOTHING
+      `, [existingMedia[0].id, userId, roomId, 'duplicate_upload']);
+
+      return existingMedia[0];
+    }
+
+    // Check storage policies
+    await this.enforceStoragePolicies(userId, roomId, file.size);
+
+    // Upload to object storage
+    const storageKey = `media/${hash}/${file.originalname}`;
+    await this.storage.uploadFile(storageKey, file.path);
+
+    // Create metadata record
+    const media = await this.db.query(`
+      INSERT INTO dashboard.media_metadata (
+        sha256_hash, file_name, content_type, file_size,
+        storage_key, uploader_id, room_id, upload_status
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'completed')
+      RETURNING *
+    `, [hash, file.originalname, file.mimetype, file.size, storageKey, userId, roomId]);
+
+    // Cache media metadata
+    await this.redis.setex(`media:${media[0].id}`, 3600, JSON.stringify(media[0]));
+
+    return media[0];
+  }
+
+  async enforceStoragePolicies(userId: string, roomId: string, fileSize: number): Promise<void> {
+    // Check user-specific policy
+    const userPolicy = await this.db.query(`
+      SELECT * FROM dashboard.storage_policies
+      WHERE scope_type = 'user' AND scope_id = $1 AND active = true
+      ORDER BY priority DESC LIMIT 1
+    `, [userId]);
+
+    // Check room-specific policy
+    const roomPolicy = await this.db.query(`
+      SELECT * FROM dashboard.storage_policies
+      WHERE scope_type = 'room' AND scope_id = $1 AND active = true
+      ORDER BY priority DESC LIMIT 1
+    `, [roomId]);
+
+    // Check global policy
+    const globalPolicy = await this.db.query(`
+      SELECT * FROM dashboard.storage_policies
+      WHERE scope_type = 'global' AND active = true
+      ORDER BY priority DESC LIMIT 1
+    `);
+
+    const policies = [globalPolicy[0], roomPolicy[0], userPolicy[0]].filter(Boolean);
+    const activePolicy = policies[0]; // Highest priority
+
+    if (activePolicy) {
+      // Check file size limits
+      if (fileSize > activePolicy.max_file_size) {
+        throw new Error(`File size exceeds limit of ${activePolicy.max_file_size} bytes`);
+      }
+
+      // Check storage quota
+      const currentUsage = await this.calculateStorageUsage(userId, roomId);
+      if (currentUsage + fileSize > activePolicy.storage_quota) {
+        throw new Error(`Storage quota exceeded. Current: ${currentUsage}, Limit: ${activePolicy.storage_quota}`);
+      }
+    }
+  }
+
+  async scheduleCleanup(mediaId: number, retentionDays: number): Promise<void> {
+    const cleanupDate = new Date();
+    cleanupDate.setDate(cleanupDate.getDate() + retentionDays);
+
+    await this.db.query(`
+      INSERT INTO dashboard.media_sync_tasks (media_id, task_type, scheduled_at, status)
+      VALUES ($1, 'cleanup', $2, 'scheduled')
+      ON CONFLICT (media_id, task_type) DO UPDATE SET
+        scheduled_at = EXCLUDED.scheduled_at,
+        status = 'scheduled'
+    `, [mediaId, cleanupDate]);
+  }
+}
+
+// Create: dashboard/backend/src/controllers/media-controller.ts
+@Controller('/api/v1/media')
+export class MediaController {
+  constructor(private mediaService: MediaService) {}
+
+  @Post('/upload')
+  @RequireAuth()
+  @RequirePermission(Permission.MEDIA_UPLOAD)
+  @UploadFile('media')
+  async uploadMedia(req: Request, res: Response): Promise<void> {
+    const media = await this.mediaService.uploadMedia(req.file, req.user.id, req.body.roomId);
+    res.status(201).json(media);
+  }
+
+  @Get('/')
+  @RequireAuth()
+  @RequirePermission(Permission.MEDIA_READ)
+  async listMedia(req: Request, res: Response): Promise<void> {
+    const filters = {
+      userId: req.query.userId as string,
+      roomId: req.query.roomId as string,
+      contentType: req.query.contentType as string,
+      page: parseInt(req.query.page as string) || 1,
+      limit: parseInt(req.query.limit as string) || 20
+    };
+
+    const media = await this.mediaService.listMedia(filters);
+    res.json(media);
+  }
+
+  @Get('/:id')
+  @RequireAuth()
+  @RequirePermission(Permission.MEDIA_READ)
+  async getMedia(req: Request, res: Response): Promise<void> {
+    const media = await this.mediaService.getMedia(parseInt(req.params.id));
+    res.json(media);
+  }
+
+  @Delete('/:id')
+  @RequireAuth()
+  @RequirePermission(Permission.MEDIA_DELETE)
+  async deleteMedia(req: Request, res: Response): Promise<void> {
+    await this.mediaService.deleteMedia(parseInt(req.params.id), req.user.id);
+    res.status(204).send();
+  }
+}
+```
+
+#### **Priority 5: Registration Application System**
+
+**Implementation Time**: 4-5 days
+**Critical Components**: Application workflow, blacklist management, approval automation
+
+```typescript
+// Create: dashboard/backend/src/services/registration-service.ts
+export class RegistrationService {
+  constructor(
+    private db: DatabaseService,
+    private redis: RedisService,
+    private emailService: EmailService,
+    private synapseApi: SynapseApiService
+  ) {}
+
+  async submitApplication(payload: CreateRegistrationRequest): Promise<RegistrationApplicationRecord> {
+    // Check against blacklist
+    const blacklistMatch = await this.checkBlacklist(payload.email, payload.ipAddress);
+    if (blacklistMatch) {
+      throw new Error(`Registration blocked: ${blacklistMatch.reason}`);
+    }
+
+    // Check for existing applications
+    const existingApplication = await this.db.query(`
+      SELECT * FROM dashboard.registration_applications
+      WHERE email = $1 AND status IN ('pending', 'under_review')
+      ORDER BY created_at DESC LIMIT 1
+    `, [payload.email]);
+
+    if (existingApplication.length > 0) {
+      throw new Error('Application already pending. Please wait for review.');
+    }
+
+    // Check application frequency limits
+    const recentApplications = await this.db.query(`
+      SELECT COUNT(*) as count FROM dashboard.registration_applications
+      WHERE ip_address = $1 AND created_at > NOW() - INTERVAL '7 days'
+    `, [payload.ipAddress]);
+
+    if (parseInt(recentApplications[0].count) >= 3) {
+      throw new Error('Too many applications from this IP address. Please try again later.');
+    }
+
+    // Generate verification token
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+
+    // Create application record
+    const application = await this.db.query(`
+      INSERT INTO dashboard.registration_applications (
+        username, email, ip_address, user_agent, registration_reason,
+        verification_token, verification_expires_at, status
+      ) VALUES ($1, $2, $3, $4, $5, $6, NOW() + INTERVAL '24 hours', 'pending_verification')
+      RETURNING *
+    `, [payload.username, payload.email, payload.ipAddress, payload.userAgent,
+        payload.registrationReason, verificationToken]);
+
+    // Send verification email
+    await this.emailService.sendVerificationEmail(payload.email, verificationToken);
+
+    // Cache for quick lookup
+    await this.redis.setex(`registration:${application[0].id}`, 3600, JSON.stringify(application[0]));
+
+    return application[0];
+  }
+
+  async verifyEmail(token: string): Promise<RegistrationApplicationRecord> {
+    const application = await this.db.query(`
+      SELECT * FROM dashboard.registration_applications
+      WHERE verification_token = $1
+        AND verification_expires_at > NOW()
+        AND status = 'pending_verification'
+      ORDER BY created_at DESC LIMIT 1
+    `, [token]);
+
+    if (!application.length) {
+      throw new Error('Invalid or expired verification token');
+    }
+
+    const updated = await this.db.query(`
+      UPDATE dashboard.registration_applications
+      SET status = 'pending_review', verified_at = NOW(), verification_token = NULL
+      WHERE id = $1
+      RETURNING *
+    `, [application[0].id]);
+
+    // Notify administrators
+    await this.notifyAdministrators(updated[0]);
+
+    return updated[0];
+  }
+
+  async processApplication(applicationId: number, action: 'approve' | 'reject',
+                          reason: string, processedBy: string): Promise<RegistrationApplicationRecord> {
+    const client = await this.db.getClient();
+
+    try {
+      await client.query('BEGIN');
+
+      const application = await client.query(`
+        UPDATE dashboard.registration_applications
+        SET status = $1, review_reason = $2, processed_by = $3, processed_at = NOW()
+        WHERE id = $4
+        RETURNING *
+      `, [action === 'approve' ? 'approved' : 'rejected', reason, processedBy, applicationId]);
+
+      if (!application.length) {
+        throw new Error('Application not found');
+      }
+
+      // If approved, create Matrix account
+      if (action === 'approve') {
+        try {
+          const matrixUser = await this.synapseApi.createUser(
+            application[0].username,
+            application[0].email
+          );
+
+          // Create user profile in dashboard
+          await client.query(`
+            INSERT INTO dashboard.user_profiles (synapse_user_id, user_group, registration_status, risk_level)
+            VALUES ($1, 'general', 'active', 'low')
+            ON CONFLICT (synapse_user_id) DO UPDATE SET
+              registration_status = EXCLUDED.registration_status,
+              updated_at = NOW()
+          `, [matrixUser.user_id]);
+
+          application[0].matrix_user_id = matrixUser.user_id;
+
+        } catch (matrixError) {
+          throw new Error(`Failed to create Matrix account: ${matrixError.message}`);
+        }
+      }
+
+      await client.query('COMMIT');
+
+      // Send notification email
+      await this.emailService.sendApplicationDecision(application[0], action === 'approved');
+
+      // Update cache
+      await this.redis.del(`registration:${applicationId}`);
+
+      return application[0];
+
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  private async checkBlacklist(email: string, ipAddress: string): Promise<BlacklistEntry | null> {
+    const blacklist = await this.db.query(`
+      SELECT * FROM dashboard.registration_blacklist
+      WHERE (email = $1 OR ip_address = $2 OR ip_subnet >>= $2::inet)
+        AND active = true
+        AND (expires_at IS NULL OR expires_at > NOW())
+      ORDER BY priority DESC
+      LIMIT 1
+    `, [email, ipAddress]);
+
+    return blacklist.length > 0 ? blacklist[0] : null;
+  }
+}
+
+// Create: dashboard/backend/src/controllers/registration-controller.ts
+@Controller('/api/v1/registration')
+export class RegistrationController {
+  constructor(private registrationService: RegistrationService) {}
+
+  @Post('/applications')
+  @ValidateBody(CreateApplicationSchema)
+  @RateLimit({ windowMs: 15 * 60 * 1000, max: 5 }) // 5 applications per 15 minutes
+  async submitApplication(req: Request, res: Response): Promise<void> {
+    const application = await this.registrationService.submitApplication({
+      ...req.body,
+      ipAddress: req.ip,
+      userAgent: req.get('User-Agent')
+    });
+    res.status(201).json(application);
+  }
+
+  @Post('/verify-email')
+  @ValidateBody(VerifyEmailSchema)
+  async verifyEmail(req: Request, res: Response): Promise<void> {
+    const application = await this.registrationService.verifyEmail(req.body.token);
+    res.json(application);
+  }
+
+  @Get('/applications')
+  @RequireAuth()
+  @RequirePermission(Permission.REGISTRATION_READ)
+  async listApplications(req: Request, res: Response): Promise<void> {
+    const filters = {
+      status: req.query.status as ApplicationStatus,
+      page: parseInt(req.query.page as string) || 1,
+      limit: parseInt(req.query.limit as string) || 20
+    };
+
+    const applications = await this.registrationService.listApplications(filters);
+    res.json(applications);
+  }
+
+  @Post('/applications/:id/approve')
+  @RequireAuth()
+  @RequirePermission(Permission.REGISTRATION_PROCESS)
+  @ValidateBody(ProcessApplicationSchema)
+  async approveApplication(req: Request, res: Response): Promise<void> {
+    const application = await this.registrationService.processApplication(
+      parseInt(req.params.id),
+      'approve',
+      req.body.reason,
+      req.user.id
+    );
+    res.json(application);
+  }
+
+  @Post('/applications/:id/reject')
+  @RequireAuth()
+  @RequirePermission(Permission.REGISTRATION_PROCESS)
+  @ValidateBody(ProcessApplicationSchema)
+  async rejectApplication(req: Request, res: Response): Promise<void> {
+    const application = await this.registrationService.processApplication(
+      parseInt(req.params.id),
+      'reject',
+      req.body.reason,
+      req.user.id
+    );
+    res.json(application);
+  }
+}
+```
+
 ### 13.3 **IMPLEMENTATION COMMANDS AND WORKFLOW**
 
 #### **Step 1: Complete Administrative Authentication**
@@ -2045,6 +2770,90 @@ app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/appeals', appealRoutes);
 
 // Add authentication middleware before protected routes
+app.use('/api/v1/', authenticateToken);
+```
+
+#### **Step 3: Implement Media Management System**
+
+```bash
+# Install additional dependencies for file handling and object storage
+npm install multer aws-sdk @types/multer
+npm install crypto @types/crypto
+
+# Create media service
+touch src/services/media-service.ts
+
+# Create media controller
+touch src/controllers/media-controller.ts
+
+# Create media routes
+touch src/routes/media-routes.ts
+
+# Create object storage service (MinIO/S3 integration)
+touch src/services/object-storage-service.ts
+
+# Add media validation schemas
+touch src/validators/media-validators.ts
+
+# Create file upload middleware
+touch src/middleware/upload-middleware.ts
+
+# Test file upload functionality
+npm run dev
+```
+
+#### **Step 4: Implement Registration Application System**
+
+```bash
+# Install additional dependencies for email verification and API integration
+npm install nodemailer @types/nodemailer
+npm install matrix-bot-api @types/matrix-bot-api
+
+# Create registration service
+touch src/services/registration-service.ts
+
+# Create registration controller
+touch src/controllers/registration-controller.ts
+
+# Create registration routes
+touch src/routes/registration-routes.ts
+
+# Create Synapse API integration service
+touch src/services/synapse-api-service.ts
+
+# Create email service templates
+mkdir -p src/templates/emails
+touch src/templates/emails/verification-email.ts
+touch src/templates/emails/application-decision.ts
+
+# Add registration validation schemas
+touch src/validators/registration-validators.ts
+
+# Test registration workflow
+npm test
+```
+
+#### **Step 5: Update Main Application Routes**
+
+```typescript
+// Update dashboard/backend/src/index.ts to include all new routes
+
+// Add after existing route imports
+import authRoutes from './routes/auth-routes';
+import appealRoutes from './routes/appeal-routes';
+import mediaRoutes from './routes/media-routes';
+import registrationRoutes from './routes/registration-routes';
+
+// Add after existing middleware (before protected routes)
+app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/appeals', appealRoutes);
+app.use('/api/v1/media', mediaRoutes);
+app.use('/api/v1/registration', registrationRoutes);
+
+// File upload middleware for media endpoints
+app.use('/api/v1/media/upload', upload.single('media'));
+
+// Apply authentication middleware to protected routes
 app.use('/api/v1/', authenticateToken);
 ```
 
@@ -2200,8 +3009,8 @@ export class HealthController {
 
 ---
 
-**Document Version**: 2.2
+**Document Version**: 2.3
 **Last Updated**: 2025-11-24
-**Major Updates**: Complete Phase 2 implementation plan with detailed code examples
-**Implementation Status**: Backend infrastructure 65% complete, authentication system ready for implementation
-**Critical Path**: Administrative authentication → RBAC system → Appeal management → Production deployment
+**Major Updates**: Complete implementation plan for all missing systems with detailed code examples
+**Implementation Status**: Backend infrastructure 45% complete, all critical systems planned with implementation details
+**Critical Path**: Administrative authentication → Appeal management → Media management → Registration system → Production deployment

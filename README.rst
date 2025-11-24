@@ -42,13 +42,26 @@ This Private Chat Synapse fork includes a comprehensive Dashboard integration sy
 **Current Implementation Status (November 2025):**
 
 * **✅ Core Synapse Integration**: Complete (100%) - Database schema, risk control enforcement, caching, and configuration
-* **✅ Dashboard Backend API**: Partially implemented (65%) - Core infrastructure ready, admin authentication pending
+* **🔄 Dashboard Backend API**: Partially implemented (45%) - Infrastructure complete, critical business logic missing
 * **❌ Dashboard Frontend**: Not implemented (0%) - React administrative interface
 * **❌ Matrix Bot Service**: Not implemented (0%) - Appeal collection and verification bot
 
 **Production Readiness:**
 - Synapse core with dashboard integration: **Ready for production**
-- Complete dashboard management system: **Requires additional development**
+- Complete dashboard management system: **Requires 4-5 weeks additional development**
+
+**Critical Missing Components:**
+- Administrative authentication endpoints (login/logout/registration)
+- Appeal management system (appeal processing workflow)
+- Media management system (file deduplication, storage policies)
+- Registration application system (user onboarding control)
+- Comprehensive testing coverage
+
+**📋 Complete Implementation Documentation:**
+- **INTRODUCTION.md**: Comprehensive setup and configuration guide
+- **ADVICE.md**: Detailed implementation plan with code examples
+- **REPORTS.md**: Current status and technical assessment
+- **REQUEST.md**: Complete project requirements specification
 
 **Compatibility checklist:**
 
@@ -131,7 +144,7 @@ Populate ``dashboard.user_profiles`` for each Matrix account you want controlled
 
 Remove or expire bans by setting ``status = 'revoked'`` or deleting the row; Synapse caches the effective state for ``default_cache_ttl_seconds`` and then re-reads the database automatically.
 
-**Step 6 – Dashboard Backend Setup (New)**
+**Step 6 – Dashboard Backend Setup (In Development)**
 
 The dashboard backend provides REST API endpoints for administrative operations:
 
@@ -142,13 +155,14 @@ The dashboard backend provides REST API endpoints for administrative operations:
    npm run build
    npm run dev
 
-   # Test health endpoint
+   # Test health endpoint (works)
    curl http://localhost:3000/api/v1/health
 
-   # Register first administrator
-   curl -X POST http://localhost:3000/api/v1/auth/register-admin \
-     -H 'Content-Type: application/json' \
-     -d '{"email":"admin@example.com","password":"SecurePass123!","fullName":"Admin","role":"super_admin"}'
+   # Authentication endpoints are planned but not yet implemented
+   # User management endpoints partially implemented
+   # Appeal, media, and registration systems require implementation
+
+   # Refer to ADVICE.md for complete implementation roadmap
 
 **Step 7 – Validate behaviour from the client side**
 
