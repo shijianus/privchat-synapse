@@ -34,6 +34,124 @@ which can be used to customise its behaviour after installation.
 There are additional details on how to `configure Synapse for federation here
 <https://element-hq.github.io/synapse/latest/federate.html>`_.
 
+🎛️ Dashboard Integration Setup
+===============================
+
+This Private Chat Synapse fork includes a comprehensive Dashboard integration system for user management, risk control, and administrative features.
+
+**Compatibility checklist:**
+
+* PostgreSQL 12+ with the ``dashboard`` schema applied (see Step 2)
+* Redis 6+ (optional today, reserved for cache invalidation via ``redis_channel_user_events``)
+* Python 3.10+, Rust toolchain, and Poetry for dependency management
+* Synapse config flag ``dashboard.enabled`` must be explicitly set to ``true``
+
+Step-by-step tutorial
+---------------------
+
+Follow the numbered guide below to enable and operate the dashboard integration end-to-end. Every command assumes you work from the repository root.
+
+**Step 1 – Install Synapse + build extensions**
+
+.. code-block:: bash
+
+   git clone https://github.com/your-org/synapse.git
+   cd synapse
+   poetry install --with dev -E all
+   poetry run python build_rust.py
+   poetry run python -m synapse.app.homeserver \
+     --server-name your-domain.com \
+     --config-path homeserver.yaml \
+     --generate-config
+
+**Step 2 – Provision the dashboard schema**
+
+The dashboard logic reads enforcement state from dedicated tables. Apply the bundled SQL once per database:
+
+.. code-block:: bash
+
+   export SYNAPSE_DB='postgresql://synapse:s3cret@localhost/synapse'
+   psql "$SYNAPSE_DB" -f dashboard/schema/dashboard_schema.sql
+
+If you use a different schema name or a managed Postgres service, adjust the connection string accordingly. Confirm tables exist with ``\dt dashboard.*`` inside ``psql``.
+
+**Step 3 – Configure ``homeserver.yaml``**
+
+Add the minimal dashboard block (all keys shown are supported by ``synapse/config/dashboard.py``):
+
+.. code-block:: yaml
+
+   dashboard:
+     enabled: true
+     # Cache TTL in seconds; 300s keeps risk decisions warm without growing stale
+     default_cache_ttl_seconds: 300
+     # Optional Redis channels (string or list) for cache invalidation / forced logout
+     redis_channel_user_events:
+       - "dashboard.user.invalidate"
+       - "dashboard.user.force_disconnect"
+
+Restart Synapse after saving the file. The logs should contain ``# DASHBOARD INTEGRATION`` entries confirming the feature toggle.
+
+**Step 4 – Start Synapse with dashboard enforcement**
+
+.. code-block:: bash
+
+   poetry run python -m synapse.app.homeserver --config-path homeserver.yaml
+
+Watch the startup log: if the dashboard schema is missing, Synapse prints ``dashboard schema unavailable`` once and gracefully falls back to default permissive behaviour.
+
+**Step 5 – Seed user profiles and bans**
+
+Populate ``dashboard.user_profiles`` for each Matrix account you want controlled, then insert bans or registration states. Example workflow:
+
+.. code-block:: sql
+
+   -- 5a. register the user inside dashboard schema
+   INSERT INTO dashboard.user_profiles (synapse_user_id, user_group, registration_status, risk_level)
+   VALUES ('@test:your-domain.com', 'general', 'active', 'low')
+   ON CONFLICT (synapse_user_id) DO UPDATE SET updated_at = NOW();
+
+   -- 5b. silence the same user
+   INSERT INTO dashboard.user_bans (user_id, ban_type, reason, created_by)
+   SELECT id, 'silence', 'Manual moderation test', '@admin:your-domain.com'
+   FROM dashboard.user_profiles
+   WHERE synapse_user_id = '@test:your-domain.com';
+
+Remove or expire bans by setting ``status = 'revoked'`` or deleting the row; Synapse caches the effective state for ``default_cache_ttl_seconds`` and then re-reads the database automatically.
+
+**Step 6 – Validate behaviour from the client side**
+
+* Login attempts now call ``check_login_allowed``. A soft_ban or hard_ban returns ``M_FORBIDDEN`` with your reason text.
+* Message sends call ``check_event_allowed``. Silenced users can still leave rooms or redact their own events but regular ``m.room.message`` operations fail with ``403``.
+
+Use ``curl`` (replacing credentials) to confirm:
+
+.. code-block:: bash
+
+   curl -XPOST http://localhost:8008/_matrix/client/r0/login \
+     -H 'Content-Type: application/json' \
+     -d '{"type":"m.login.password","identifier":{"type":"m.id.user","user":"test"},"password":"hunter2"}'
+
+If you revoked the ban, repeat the request to confirm access is restored after the cache expires (or call ``/_matrix/client/r0/admin/cache_invalidate`` when the Redis hook is wired up).
+
+**Troubleshooting & operational tips**
+
+* ``dashboard.enabled`` missing: Synapse treats the feature as disabled; set it explicitly and restart.
+* Schema typos: the server logs ``dashboard schema unavailable`` once per boot. Re-run ``dashboard/schema/dashboard_schema.sql``.
+* Cache refresh: TTL defaults to 300 s; lower it for aggressive moderation or call ``invalidate_user`` via a future pub/sub listener.
+* Observability: enable DEBUG logging for ``synapse.dashboard_integration`` to see cache hits/misses while developing integrations.
+
+Debug logging for dashboard integration:
+
+.. code-block:: yaml
+
+   log_config: "/path/to/log_config.yaml"
+
+   # In your log config file:
+   loggers:
+     synapse.dashboard_integration:
+       level: DEBUG
+
 .. _reverse-proxy:
 
 Using a reverse proxy with Synapse

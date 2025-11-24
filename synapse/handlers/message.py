@@ -691,6 +691,21 @@ class EventCreationHandler:
                         Codes.USER_ACCOUNT_SUSPENDED,
                     )
 
+        # DASHBOARD INTEGRATION: enforce dashboard policy for event sending
+        # We only apply after built-in suspension checks and only to user-originated
+        # requests (not server-originated actions).
+        if not request_by_server:
+            integration = self.hs.get_dashboard_integration()
+            allowed, reason = await integration.check_event_allowed(
+                requester.user.to_string(), event_dict.get("type"), event_dict.get("content", {})
+            )
+            if not allowed:
+                raise SynapseError(
+                    403,
+                    reason or "Event blocked by server policy.",
+                    Codes.FORBIDDEN,
+                )
+
         is_create_event = (
             event_dict["type"] == EventTypes.Create and event_dict["state_key"] == ""
         )
