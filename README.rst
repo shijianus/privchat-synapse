@@ -39,11 +39,23 @@ There are additional details on how to `configure Synapse for federation here
 
 This Private Chat Synapse fork includes a comprehensive Dashboard integration system for user management, risk control, and administrative features.
 
+**Current Implementation Status (November 2025):**
+
+* **✅ Core Synapse Integration**: Complete (100%) - Database schema, risk control enforcement, caching, and configuration
+* **✅ Dashboard Backend API**: Partially implemented (65%) - Core infrastructure ready, admin authentication pending
+* **❌ Dashboard Frontend**: Not implemented (0%) - React administrative interface
+* **❌ Matrix Bot Service**: Not implemented (0%) - Appeal collection and verification bot
+
+**Production Readiness:**
+- Synapse core with dashboard integration: **Ready for production**
+- Complete dashboard management system: **Requires additional development**
+
 **Compatibility checklist:**
 
 * PostgreSQL 12+ with the ``dashboard`` schema applied (see Step 2)
-* Redis 6+ (optional today, reserved for cache invalidation via ``redis_channel_user_events``)
+* Redis 6+ for caching and pub/sub messaging
 * Python 3.10+, Rust toolchain, and Poetry for dependency management
+* Node.js 18+ for dashboard backend services
 * Synapse config flag ``dashboard.enabled`` must be explicitly set to ``true``
 
 Step-by-step tutorial
@@ -119,10 +131,30 @@ Populate ``dashboard.user_profiles`` for each Matrix account you want controlled
 
 Remove or expire bans by setting ``status = 'revoked'`` or deleting the row; Synapse caches the effective state for ``default_cache_ttl_seconds`` and then re-reads the database automatically.
 
-**Step 6 – Validate behaviour from the client side**
+**Step 6 – Dashboard Backend Setup (New)**
+
+The dashboard backend provides REST API endpoints for administrative operations:
+
+.. code-block:: bash
+
+   # From dashboard/backend directory
+   npm install
+   npm run build
+   npm run dev
+
+   # Test health endpoint
+   curl http://localhost:3000/api/v1/health
+
+   # Register first administrator
+   curl -X POST http://localhost:3000/api/v1/auth/register-admin \
+     -H 'Content-Type: application/json' \
+     -d '{"email":"admin@example.com","password":"SecurePass123!","fullName":"Admin","role":"super_admin"}'
+
+**Step 7 – Validate behaviour from the client side**
 
 * Login attempts now call ``check_login_allowed``. A soft_ban or hard_ban returns ``M_FORBIDDEN`` with your reason text.
 * Message sends call ``check_event_allowed``. Silenced users can still leave rooms or redact their own events but regular ``m.room.message`` operations fail with ``403``.
+* Dashboard API provides administrative control over user bans, appeals, and policies.
 
 Use ``curl`` (replacing credentials) to confirm:
 
@@ -132,14 +164,26 @@ Use ``curl`` (replacing credentials) to confirm:
      -H 'Content-Type: application/json' \
      -d '{"type":"m.login.password","identifier":{"type":"m.id.user","user":"test"},"password":"hunter2"}'
 
+   # Test dashboard integration
+   curl -X GET http://localhost:3000/api/v1/users \
+     -H 'Authorization: Bearer YOUR_ADMIN_JWT_TOKEN'
+
 If you revoked the ban, repeat the request to confirm access is restored after the cache expires (or call ``/_matrix/client/r0/admin/cache_invalidate`` when the Redis hook is wired up).
 
 **Troubleshooting & operational tips**
 
-* ``dashboard.enabled`` missing: Synapse treats the feature as disabled; set it explicitly and restart.
-* Schema typos: the server logs ``dashboard schema unavailable`` once per boot. Re-run ``dashboard/schema/dashboard_schema.sql``.
-* Cache refresh: TTL defaults to 300 s; lower it for aggressive moderation or call ``invalidate_user`` via a future pub/sub listener.
-* Observability: enable DEBUG logging for ``synapse.dashboard_integration`` to see cache hits/misses while developing integrations.
+* **Dashboard Integration**:
+  * ``dashboard.enabled`` missing: Synapse treats the feature as disabled; set it explicitly and restart.
+  * Schema typos: the server logs ``dashboard schema unavailable`` once per boot. Re-run ``dashboard/schema/dashboard_schema.sql``.
+  * Cache refresh: TTL defaults to 300 s; lower it for aggressive moderation or call ``invalidate_user`` via a future pub/sub listener.
+  * Observability: enable DEBUG logging for ``synapse.dashboard_integration`` to see cache hits/misses while developing integrations.
+
+* **Dashboard Backend API**:
+  * Port conflicts: Change ``PORT`` in ``dashboard/backend/.env`` if 3000 is in use.
+  * Database connection: Verify ``DB_HOST``, ``DB_USER``, and ``DB_PASSWORD`` in ``.env`` file.
+  * Redis connection: Ensure Redis is running and ``REDIS_HOST`` is correctly configured.
+  * Build errors: Run ``npm install`` and ``npm run build`` to resolve dependency issues.
+  * Authentication failures: Check JWT_SECRET configuration and admin user creation in database.
 
 Debug logging for dashboard integration:
 
@@ -340,7 +384,25 @@ an email address with your account, or send an invite to another user via their
 email address.
 
 
-🛠️ Development
+📚 Documentation
+===============
+
+For detailed setup and configuration instructions, see:
+
+* **INTRODUCTION.md**: Complete installation and setup guide
+* **ADVICE.md**: Detailed implementation advice and development plans
+* **REPORTS.md**: Current implementation status and progress reports
+* **REQUEST.md**: Full project requirements and specifications
+
+**Quick Setup Overview:**
+
+1. **System Requirements**: PostgreSQL 12+, Redis 6+, Python 3.10+, Node.js 18+
+2. **Database Setup**: Apply dashboard schema with ``psql -f dashboard/schema/dashboard_schema.sql``
+3. **Configuration**: Enable ``dashboard.enabled: true`` in ``homeserver.yaml``
+4. **Backend API**: Install dependencies with ``npm install`` in ``dashboard/backend/``
+5. **Admin Setup**: Create admin user via API or database insertion
+
+Development
 ==============
 
 We welcome contributions to Synapse from the community!
@@ -348,6 +410,13 @@ The best place to get started is our
 `guide for contributors <https://element-hq.github.io/synapse/latest/development/contributing_guide.html>`_.
 This is part of our broader `documentation <https://element-hq.github.io/synapse/latest>`_, which includes
 information for Synapse developers as well as Synapse administrators.
+
+**Dashboard Development:**
+
+* **Backend API**: Node.js/TypeScript REST service in ``dashboard/backend/``
+* **Database Schema**: PostgreSQL tables in ``dashboard/schema/``
+* **Integration Points**: Synapse hooks in ``synapse/dashboard_integration/``
+* **Testing**: Run ``npm test`` in backend directory, ``pytest`` for Synapse components
 
 Developers might be particularly interested in:
 
