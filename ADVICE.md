@@ -2279,6 +2279,463 @@ export class AppealController {
 }
 ```
 
+#### **Priority 2: Appeal Management System**
+
+**Implementation Time**: 4-5 days
+**Critical Components**: Appeal processing, message management, admin decision workflow
+
+```typescript
+// Create: dashboard/backend/src/services/appeal-service.ts
+export interface AppealRecord {
+  id: number;
+  userId: string;
+  banId: number;
+  appealType: 'ban_appeal' | 'report_appeal' | 'other';
+  title: string;
+  description: string;
+  status: 'pending' | 'under_review' | 'approved' | 'rejected';
+  submittedAt: Date;
+  reviewedAt?: Date;
+  reviewedBy?: number;
+  adminResponse?: string;
+  evidenceAttachments?: string[];
+}
+
+export interface AppealMessageRecord {
+  id: number;
+  appealId: number;
+  senderType: 'user' | 'admin';
+  senderId: string;
+  content: string;
+  timestamp: Date;
+  attachments?: string[];
+}
+
+export class AppealService {
+  constructor(
+    private db: DatabaseService,
+    private redis: RedisService,
+    private notificationService: NotificationService
+  ) {}
+
+  async createAppeal(payload: CreateAppealRequest, userId: string): Promise<AppealRecord> {
+    // Validate appeal eligibility
+    const activeBan = await this.db.query(
+      'SELECT * FROM dashboard.user_bans WHERE user_id = $1 AND is_active = true',
+      [userId]
+    );
+
+    if (activeBan.length === 0 && payload.appealType === 'ban_appeal') {
+      throw new Error('No active ban found for appeal');
+    }
+
+    // Check for existing appeal
+    const existingAppeal = await this.db.query(
+      'SELECT id FROM dashboard.user_appeals WHERE ban_id = $1 AND status IN ($2, $3)',
+      [activeBan[0].id, 'pending', 'under_review']
+    );
+
+    if (existingAppeal.length > 0) {
+      throw new Error('Appeal already exists for this ban');
+    }
+
+    // Create appeal record
+    const result = await this.db.query(
+      `INSERT INTO dashboard.user_appeals
+       (user_id, ban_id, appeal_type, title, description, status, submitted_at)
+       VALUES ($1, $2, $3, $4, $5, 'pending', NOW())
+       RETURNING *`,
+      [userId, activeBan[0].id, payload.appealType, payload.title, payload.description]
+    );
+
+    // Send notification to administrators
+    await this.notificationService.notifyAdmins({
+      type: 'new_appeal',
+      appealId: result[0].id,
+      userId: userId,
+      urgency: 'normal'
+    });
+
+    return result[0];
+  }
+
+  async addAppealMessage(appealId: number, content: string, senderType: 'user' | 'admin', senderId: string): Promise<AppealMessageRecord> {
+    // Verify appeal exists and is accessible
+    const appeal = await this.db.query(
+      'SELECT * FROM dashboard.user_appeals WHERE id = $1',
+      [appealId]
+    );
+
+    if (appeal.length === 0) {
+      throw new Error('Appeal not found');
+    }
+
+    // Add message
+    const result = await this.db.query(
+      `INSERT INTO dashboard.appeal_messages
+       (appeal_id, sender_type, sender_id, content, timestamp)
+       VALUES ($1, $2, $3, $4, NOW())
+       RETURNING *`,
+      [appealId, senderType, senderId, content]
+    );
+
+    // Update appeal status if needed
+    if (appeal[0].status === 'pending' && senderType === 'admin') {
+      await this.db.query(
+        'UPDATE dashboard.user_appeals SET status = $1, reviewed_at = NOW() WHERE id = $2',
+        ['under_review', appealId]
+      );
+    }
+
+    return result[0];
+  }
+
+  async processAppeal(appealId: number, decision: 'approve' | 'reject', adminResponse: string, adminId: number): Promise<AppealRecord> {
+    // Get appeal details
+    const appeal = await this.db.query(
+      'SELECT * FROM dashboard.user_appeals WHERE id = $1',
+      [appealId]
+    );
+
+    if (appeal.length === 0) {
+      throw new Error('Appeal not found');
+    }
+
+    const appealRecord = appeal[0];
+
+    // Start transaction
+    await this.db.query('BEGIN');
+
+    try {
+      // Update appeal status
+      await this.db.query(
+        `UPDATE dashboard.user_appeals
+         SET status = $1, admin_response = $2, reviewed_at = NOW(), reviewed_by = $3
+         WHERE id = $4`,
+        [decision === 'approve' ? 'approved' : 'rejected', adminResponse, adminId, appealId]
+      );
+
+      // Add admin response as message
+      await this.addAppealMessage(appealId, adminResponse, 'admin', adminId.toString());
+
+      // If approved, lift the ban
+      if (decision === 'approve' && appealRecord.appealType === 'ban_appeal') {
+        await this.db.query(
+          `UPDATE dashboard.user_bans
+           SET is_active = false, lifted_at = NOW(), lifted_by = $1
+           WHERE id = $2`,
+          [adminId, appealRecord.banId]
+        );
+
+        // Update user risk level to none
+        await this.db.query(
+          'UPDATE dashboard.user_profiles SET risk_level = $1, updated_at = NOW() WHERE user_id = $2',
+          ['none', appealRecord.user_id]
+        );
+
+        // Clear user policy cache
+        await this.redis.del(`user_policy:${appealRecord.user_id}`);
+      }
+
+      // Log operation
+      await this.db.query(
+        `INSERT INTO dashboard.operation_logs
+         (operator_id, operation_type, target_user_id, details)
+         VALUES ($1, $2, $3, $4)`,
+        [adminId, `appeal_${decision}`, appealRecord.user_id, JSON.stringify({
+          appealId: appealId,
+          banId: appealRecord.banId,
+          decision: decision
+        })]
+      );
+
+      await this.db.query('COMMIT');
+
+      // Notify user of decision
+      await this.notificationService.notifyUser({
+        userId: appealRecord.user_id,
+        type: 'appeal_decision',
+        decision: decision,
+        appealId: appealId,
+        response: adminResponse
+      });
+
+      return (await this.db.query('SELECT * FROM dashboard.user_appeals WHERE id = $1', [appealId]))[0];
+
+    } catch (error) {
+      await this.db.query('ROLLBACK');
+      throw error;
+    }
+  }
+
+  async getAppealList(filters: AppealFilters, pagination: PaginationRequest): Promise<PaginatedResponse<AppealRecord>> {
+    const { status, userId, appealType, dateFrom, dateTo } = filters;
+    const { page = 1, limit = 20 } = pagination;
+    const offset = (page - 1) * limit;
+
+    let whereClause = 'WHERE 1=1';
+    const params: any[] = [];
+
+    if (status) {
+      whereClause += ` AND status = $${params.length + 1}`;
+      params.push(status);
+    }
+
+    if (userId) {
+      whereClause += ` AND user_id = $${params.length + 1}`;
+      params.push(userId);
+    }
+
+    if (appealType) {
+      whereClause += ` AND appeal_type = $${params.length + 1}`;
+      params.push(appealType);
+    }
+
+    if (dateFrom) {
+      whereClause += ` AND submitted_at >= $${params.length + 1}`;
+      params.push(dateFrom);
+    }
+
+    if (dateTo) {
+      whereClause += ` AND submitted_at <= $${params.length + 1}`;
+      params.push(dateTo);
+    }
+
+    // Get total count
+    const countResult = await this.db.query(
+      `SELECT COUNT(*) as total FROM dashboard.user_appeals ${whereClause}`,
+      params
+    );
+
+    // Get appeals
+    const appeals = await this.db.query(
+      `SELECT * FROM dashboard.user_appeals ${whereClause}
+       ORDER BY submitted_at DESC
+       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, limit, offset]
+    );
+
+    return {
+      items: appeals,
+      pagination: {
+        page,
+        limit,
+        total: parseInt(countResult[0].total),
+        totalPages: Math.ceil(countResult[0].total / limit)
+      }
+    };
+  }
+
+  async getAppealDetails(appealId: number): Promise<{ appeal: AppealRecord; messages: AppealMessageRecord[] }> {
+    // Get appeal details
+    const appeal = await this.db.query(
+      'SELECT * FROM dashboard.user_appeals WHERE id = $1',
+      [appealId]
+    );
+
+    if (appeal.length === 0) {
+      throw new Error('Appeal not found');
+    }
+
+    // Get appeal messages
+    const messages = await this.db.query(
+      'SELECT * FROM dashboard.appeal_messages WHERE appeal_id = $1 ORDER BY timestamp ASC',
+      [appealId]
+    );
+
+    return {
+      appeal: appeal[0],
+      messages: messages
+    };
+  }
+}
+
+// Create: dashboard/backend/src/controllers/appeal-controller.ts
+@RestController('/api/v1/appeals')
+export class AppealController {
+  constructor(private appealService: AppealService) {}
+
+  @Post('/') @ValidateBody(createAppealSchema) async createAppeal(req: Request, res: Response): Promise<void> {
+    try {
+      const appeal = await this.appealService.createAppeal(req.body, req.user.userId);
+      res.status(201).json(appeal);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  @Get('/') @RequireAuth() async getAppealList(req: Request, res: Response): Promise<void> {
+    const filters = {
+      status: req.query.status as string,
+      userId: req.query.userId as string,
+      appealType: req.query.appealType as string,
+      dateFrom: req.query.dateFrom ? new Date(req.query.dateFrom as string) : undefined,
+      dateTo: req.query.dateTo ? new Date(req.query.dateTo as string) : undefined
+    };
+
+    const pagination = {
+      page: parseInt(req.query.page as string) || 1,
+      limit: Math.min(parseInt(req.query.limit as string) || 20, 100)
+    };
+
+    const result = await this.appealService.getAppealList(filters, pagination);
+    res.json(result);
+  }
+
+  @Get('/:id') @RequireAuth() async getAppealDetails(req: Request, res: Response): Promise<void> {
+    try {
+      const result = await this.appealService.getAppealDetails(parseInt(req.params.id));
+      res.json(result);
+    } catch (error) {
+      res.status(404).json({ error: error.message });
+    }
+  }
+
+  @Post('/:id/messages') @RequireAuth() @ValidateBody(addMessageSchema) async addMessage(req: Request, res: Response): Promise<void> {
+    try {
+      const message = await this.appealService.addAppealMessage(
+        parseInt(req.params.id),
+        req.body.content,
+        req.user.role === 'admin' ? 'admin' : 'user',
+        req.user.id
+      );
+      res.status(201).json(message);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  @Post('/:id/approve') @RequireAuth(['admin', 'moderator']) @ValidateBody(processAppealSchema) async approveAppeal(req: Request, res: Response): Promise<void> {
+    try {
+      const appeal = await this.appealService.processAppeal(
+        parseInt(req.params.id),
+        'approve',
+        req.body.response,
+        req.user.id
+      );
+      res.json(appeal);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  @Post('/:id/reject') @RequireAuth(['admin', 'moderator']) @ValidateBody(processAppealSchema) async rejectAppeal(req: Request, res: Response): Promise<void> {
+    try {
+      const appeal = await this.appealService.processAppeal(
+        parseInt(req.params.id),
+        'reject',
+        req.body.response,
+        req.user.id
+      );
+      res.json(appeal);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+}
+
+// Create: dashboard/backend/src/validators/appeal-validators.ts
+export const createAppealSchema = Joi.object({
+  appealType: Joi.string().valid('ban_appeal', 'report_appeal', 'other').required(),
+  title: Joi.string().min(5).max(200).required(),
+  description: Joi.string().min(20).max(2000).required(),
+  banId: Joi.number().when('appealType', {
+    is: 'ban_appeal',
+    then: Joi.required(),
+    otherwise: Joi.optional()
+  }),
+  evidenceAttachments: Joi.array().items(Joi.string().uri()).max(5).optional()
+});
+
+export const addMessageSchema = Joi.object({
+  content: Joi.string().min(1).max(1000).required(),
+  attachments: Joi.array().items(Joi.string().uri()).max(3).optional()
+});
+
+export const processAppealSchema = Joi.object({
+  response: Joi.string().min(10).max(1000).required(),
+  notifyUser: Joi.boolean().default(true)
+});
+
+export const appealFiltersSchema = Joi.object({
+  status: Joi.string().valid('pending', 'under_review', 'approved', 'rejected').optional(),
+  userId: Joi.string().pattern(/^\d+$/).optional(),
+  appealType: Joi.string().valid('ban_appeal', 'report_appeal', 'other').optional(),
+  dateFrom: Joi.date().iso().optional(),
+  dateTo: Joi.date().iso().min(Joi.ref('dateFrom')).optional(),
+  page: Joi.number().integer().min(1).default(1),
+  limit: Joi.number().integer().min(1).max(100).default(20)
+});
+```
+
+#### **Priority 3: Database Integration Layer**
+
+**Implementation Time**: 3-4 days
+**Critical Components**: Database service, connection pooling, transaction management
+
+```typescript
+// Create: dashboard/backend/src/services/database-service.ts
+export class DatabaseService {
+  private pool: pg.Pool;
+
+  constructor() {
+    this.pool = new pg.Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+      max: 20,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 2000,
+    });
+  }
+
+  async query<T = any>(sql: string, params?: any[]): Promise<T[]> {
+    const start = Date.now();
+    try {
+      const result = await this.pool.query(sql, params);
+      const duration = Date.now() - start;
+
+      if (duration > 1000) {
+        console.warn(`Slow query: ${duration}ms - ${sql.substring(0, 100)}`);
+      }
+
+      return result.rows;
+    } catch (error) {
+      console.error(`Database query error: ${error.message} - ${sql.substring(0, 100)}`);
+      throw error;
+    }
+  }
+
+  async transaction<T>(callback: (client: pg.PoolClient) => Promise<T>): Promise<T> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await callback(client);
+      await client.query('COMMIT');
+      return result;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async close(): Promise<void> {
+    await this.pool.end();
+  }
+
+  async healthCheck(): Promise<{ status: 'healthy' | 'unhealthy', latency: number }> {
+    const start = Date.now();
+    try {
+      await this.query('SELECT 1');
+      return { status: 'healthy', latency: Date.now() - start };
+    } catch (error) {
+      return { status: 'unhealthy', latency: Date.now() - start };
+    }
+  }
+}
+```
+
 #### **Priority 4: Media Management System**
 
 **Implementation Time**: 5-6 days
