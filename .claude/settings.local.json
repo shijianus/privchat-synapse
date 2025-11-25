@@ -10,7 +10,10 @@
       "Bash(poetry --version:*)",
       "Bash(docker:*)",
       "Bash(git tag:*)",
-      "Bash(git config:*)"
+      "Bash(git config:*)",
+      "Bash(cp:*)",
+      "Bash(mv:*)",
+      "Bash(touch:*)"
     ],
     "deny": [],
     "ask": []
