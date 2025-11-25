@@ -59,3 +59,19 @@ Advice Alignment
 
   Next steps: keep the checklist updated whenever REQUEST.md evolves and link concrete feature tickets to the acceptance
   bullets so we always have evidence for each release.
+
+�?RBAC Enforcement
+
+  - Introduced a `requirePermissions` middleware so every API call now enforces the Dashboard RBAC matrix instead of
+    trusting controllers to check manually, guaranteeing consistent 403 responses when scopes are missing (dashboard/
+    backend/src/middleware/permission-middleware.ts:1).
+  - Applied the new middleware to user, ban, and appeal routes so read/write, ban management, and appeal processing
+    endpoints each demand the matching permissions from REQUEST.md §III-V, aligning runtime behavior with the documented
+    5-tier RBAC hierarchy (dashboard/backend/src/routes/{user-routes,ban-routes,appeal-routes}.ts:1).
+
+  Tests:
+
+  - not run (per user request)
+
+  Next steps: extend the same pattern to upcoming media, registration, and audit routes once those controllers land so
+  that the permission matrix remains comprehensive.
