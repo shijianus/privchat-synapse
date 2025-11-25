@@ -126,3 +126,27 @@ CREATE POLICY user_bans_policy ON dashboard.user_bans
     TO PUBLIC
     USING (true);
 
+CREATE TABLE IF NOT EXISTS dashboard.admin_users (
+    id BIGSERIAL PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    full_name TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('super_admin', 'admin', 'moderator', 'operator', 'viewer')),
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suspended', 'locked')),
+    last_login_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS admin_users_role_idx ON dashboard.admin_users(role);
+CREATE INDEX IF NOT EXISTS admin_users_status_idx ON dashboard.admin_users(status);
+
+INSERT INTO dashboard.admin_users (email, password_hash, full_name, role)
+VALUES (
+    'admin@matrix.local',
+    '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewwMdpd1xjvP4j7W',
+    'Default Administrator',
+    'super_admin'
+)
+ON CONFLICT (email) DO NOTHING;
+

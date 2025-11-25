@@ -1,6 +1,6 @@
 import 'express';
 
-import { AuthenticatedUser } from './auth';
+import { AuthenticatedUser, MatrixBotIdentity } from './auth';
 
 declare global {
   namespace Express {
@@ -9,6 +9,7 @@ declare global {
      */
     interface Request {
       user?: AuthenticatedUser;
+      bot?: MatrixBotIdentity;
     }
   }
 }

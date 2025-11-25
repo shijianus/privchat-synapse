@@ -40,23 +40,49 @@ This is a comprehensive Matrix homeserver implementation with integrated adminis
 
 **Core Components:**
 1. **Synapse Homeserver** - Matrix protocol server for chat, federation, and real-time communication
-2. **Dashboard Integration** - User management, risk control, and administrative features (in `synapse/dashboard_integration/`)
+2. **Dashboard Integration Module** - User management, risk control, and administrative features (in `synapse/dashboard_integration/`)
 3. **Dashboard Backend API** - Node.js/TypeScript REST service for administrative operations (in `dashboard/backend/`)
-4. **Shared Database** - PostgreSQL with dashboard schema extensions for user policies and audit logs
-5. **Caching Layer** - Redis for performance optimization and real-time pub/sub messaging
+4. **Dashboard Frontend** - React/TypeScript web interface for administrative management (planned)
+5. **Matrix Bot Service** - Appeal collection and friend verification automation (planned)
+6. **Shared Database** - PostgreSQL with dual schemas for Matrix and dashboard data
+7. **Caching Layer** - Redis for performance optimization and real-time pub/sub messaging
 
 **System Architecture:**
-- **User Flow**: Matrix clients → Synapse → Dashboard checks → Database/Redis → Allow/Block actions
-- **Admin Flow**: Dashboard Frontend → Backend API → Database → Policy enforcement via Synapse
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│  Matrix Clients │◄──►│  Synapse API    │◄──►│ Dashboard API   │
+│  (Element, etc) │    │   (Port 8008)   │    │   (Port 3000)   │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+         │                       │                       │
+         ▼                       ▼                       ▼
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│  Dashboard Web  │◄──►│  PostgreSQL DB  │◄──►│      Redis      │
+│ (Port 3001 - TBD)│    │   (Port 5432)   │    │   (Port 6379)   │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+         ▲                       ▲                       ▲
+         │                       │                       │
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│  Matrix Bot     │    │ Public Schema   │    │ Cache/PubSub    │
+│  Service (TBD)  │    │ (Synapse Data)  │    │ (Invalidation)  │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+```
+
+**Data Flow Architecture:**
+- **User Flow**: Matrix clients → Synapse → Dashboard integration checks → Database/Redis → Allow/Block actions
+- **Admin Flow**: Dashboard Frontend → Backend API → Database → Policy enforcement via Synapse integration
 - **Real-time Updates**: Redis pub/sub for cache invalidation and force disconnect capabilities
+- **Appeal Flow**: Matrix Bot → Dashboard API → Admin Review → Decision → Bot Notification
 
 **Key Features:**
 - **Four-Level Risk Control**: None → Silence (read-only) → Soft Ban (limited access, can appeal) → Hard Ban (blocked)
 - **Real-time Policy Enforcement**: Instant login and message control based on user status
 - **Comprehensive Audit Trail**: Complete operation logs for all administrative actions
-- **Integrated Appeal System**: User appeals with admin review workflow (in development)
-- **Media Management**: SHA256 deduplication and storage policy enforcement (planned)
-- **Registration Control**: Application-based user onboarding (planned)
+- **Role-Based Access Control**: 5-tier admin hierarchy (super_admin, admin, moderator, operator, viewer)
+- **Integrated Appeal System**: User appeals with admin review workflow (backend complete, frontend/bot TBD)
+- **Media Management**: SHA256 deduplication and storage policy enforcement (schema complete, logic TBD)
+- **Registration Control**: Application-based user onboarding with CAPTCHA verification (schema complete, logic TBD)
+- **Two-Factor Authentication**: Secondary password, TOTP, email codes, and friend verification (planned)
+- **Docker Deployment**: Multi-service containerization with monitoring and health checks (planned)
 
 🎛️ Dashboard Integration Setup
 ===============================
@@ -66,14 +92,20 @@ This Private Chat Synapse fork includes a comprehensive Dashboard integration sy
 **Current Implementation Status (November 2025):**
 
 * **✅ Core Synapse Integration**: Complete (100%) - Database schema, risk control enforcement, caching, and configuration
-* **🔄 Dashboard Backend API**: 75% Complete - Authentication system, user management, and basic operations functional
+* **🔄 Dashboard Backend API**: 85% Complete - Authentication system, user management, ban control, appeal system, and operation logging functional
 * **❌ Dashboard Frontend**: Not implemented (0%) - React administrative interface (highest priority)
 * **❌ Matrix Bot Service**: Not implemented (0%) - Appeal collection and verification bot
+* **❌ Media Management System**: 20% Complete - Database schema only, processing logic missing
+* **❌ Registration System**: 30% Complete - Database schema only, workflow automation missing
+* **❌ 2FA System**: Not implemented (0%) - Secondary password and verification methods missing
+* **❌ Production Deployment**: Not implemented (0%) - Docker containerization and monitoring missing
 
 **Production Readiness:**
 - Synapse core with dashboard integration: **✅ Ready for production**
-- Dashboard backend authentication system: **✅ Ready for production**
-- Complete dashboard management system: **🔄 2-3 weeks additional development**
+- Dashboard backend authentication and APIs: **✅ Ready for production**
+- Complete dashboard management system: **🔄 4-5 months additional development** (Phase 1-4)
+
+**Overall Project Completion**: ~65%
 
 **Implemented Features:**
 - ✅ JWT authentication with RBAC (5-tier admin hierarchy)

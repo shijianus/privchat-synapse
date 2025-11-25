@@ -11,6 +11,7 @@ export interface AppConfig {
   readonly logLevel: string;
   readonly jwtSecret: string;
   readonly jwtRefreshSecret: string;
+  readonly botApiSecret: string;
   readonly accessTokenTtlSeconds: number;
   readonly refreshTokenTtlSeconds: number;
   readonly cacheTtlSeconds: number;
@@ -47,6 +48,7 @@ export const config: AppConfig = {
   logLevel: process.env.LOG_LEVEL || 'info',
   jwtSecret: process.env.JWT_SECRET || 'change-me',
   jwtRefreshSecret: process.env.JWT_REFRESH_SECRET || 'change-me-too',
+  botApiSecret: process.env.BOT_API_SECRET || 'matrix-bot-secret',
   accessTokenTtlSeconds: toNumber(process.env.JWT_ACCESS_TTL_SECONDS, 900),
   refreshTokenTtlSeconds: toNumber(process.env.JWT_REFRESH_TTL_SECONDS, 604800),
   cacheTtlSeconds: toNumber(process.env.DASHBOARD_CACHE_TTL_SECONDS, 300),

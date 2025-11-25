@@ -5,6 +5,7 @@ import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import morgan from 'morgan';
 
+import { AppealController } from './controllers/appeal-controller';
 import { AuthController } from './controllers/auth-controller';
 import { BanController } from './controllers/ban-controller';
 import { UserController } from './controllers/user-controller';
@@ -16,7 +17,9 @@ import { RedisService } from './redis/redis-service';
 import { createApiRouter } from './routes';
 import { createAuthRoutes } from './routes/auth-routes';
 import { createHealthRoutes } from './routes/health-routes';
+import { createBotRoutes } from './routes/bot-routes';
 import { AuthService } from './services/auth-service';
+import { AppealService } from './services/appeal-service';
 import { BanService } from './services/ban-service';
 import { OperationLogService } from './services/operation-log-service';
 import { UserService } from './services/user-service';
@@ -34,6 +37,7 @@ const startServer = async (): Promise<void> => {
 
   const operationLogService = new OperationLogService(databaseService);
   const userService = new UserService(databaseService, redisService, operationLogService);
+  const appealService = new AppealService(databaseService, userService, operationLogService);
   const banService = new BanService(
     databaseService,
     redisService,
@@ -44,6 +48,7 @@ const startServer = async (): Promise<void> => {
 
   const userController = new UserController(userService, banService);
   const banController = new BanController(banService);
+  const appealController = new AppealController(appealService);
   const authController = new AuthController(authService);
 
   const app = express();
@@ -63,7 +68,12 @@ const startServer = async (): Promise<void> => {
 
   app.use('/health', createHealthRoutes());
   app.use('/api/v1/auth', createAuthRoutes(authController));
-  app.use('/api/v1', authMiddleware, createApiRouter({ userController, banController }));
+  app.use('/api/v1/bot', createBotRoutes({ appealController }));
+  app.use(
+    '/api/v1',
+    authMiddleware,
+    createApiRouter({ userController, banController, appealController })
+  );
 
   app.use(errorHandler);
 

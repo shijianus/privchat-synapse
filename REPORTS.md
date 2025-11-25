@@ -23,3 +23,22 @@
 
   Next steps: 1) hook RBAC checks into existing user/ban controllers to enforce the new permission map, 2) extend the
   same pattern to the upcoming appeals/media systems so the dashboard reaches parity with the rest of REQUEST.md.
+
+�?
+
+  - Built the end-to-end appeals workflow so administrators and the Matrix bot share a consistent source of truth:
+    schema-backed TypeScript models, the AppealService with transactional submit/list/decision helpers, and new
+    controllers/middleware/routes for both /api/v1/appeals and /api/v1/bot/appeals (dashboard/backend/src/types/
+    appeal.ts:1, dashboard/backend/src/services/appeal-service.ts:1, dashboard/backend/src/controllers/appeal-
+    controller.ts:1, dashboard/backend/src/routes/{appeal-routes,bot-routes}.ts:1, dashboard/backend/src/index.ts:1).
+  - Added a dedicated bot JWT middleware plus configuration so services authenticate with BOT_API_SECRET and logged it
+    within the env loader/sample; this isolates bot flows from administrator auth (dashboard/backend/src/middleware/
+    bot-auth-middleware.ts:1, dashboard/backend/src/config/env.ts:8, dashboard/backend/.env.example:1).
+  - Documented the newly exposed knobs in REPORTS.md and ensured the API wiring is captured for future dashboard steps.
+
+  Tests:
+
+  - npm run test -- tests/unit/appeal-service.test.ts
+
+  Next steps: integrate appeal decisions with downstream ban/unban automation (pub/sub) and surface the new endpoints
+  inside the forthcoming dashboard frontend plus Matrix bot flows.

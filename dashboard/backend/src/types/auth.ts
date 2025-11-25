@@ -32,3 +32,12 @@ export interface AuthTokens {
   readonly refreshToken: string;
   readonly user: PublicAdminUser;
 }
+
+/**
+ * Identity extracted from Matrix bot JWT tokens.
+ */
+export interface MatrixBotIdentity {
+  readonly id: string;
+  readonly name?: string;
+  readonly scopes?: string[];
+}
