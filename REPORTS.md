@@ -42,3 +42,20 @@
 
   Next steps: integrate appeal decisions with downstream ban/unban automation (pub/sub) and surface the new endpoints
   inside the forthcoming dashboard frontend plus Matrix bot flows.
+
+Advice Alignment
+
+  - Expanded `ADVICE.md` with a `REQUEST.md` alignment checklist so every functional bucket (user lifecycle, risk
+    control, appeals, media, 2FA, audit, client customization, frontend, NFRs, Docker, and acceptance tests) now has an
+    explicit pointer to the matching roadmap phase, keeping the documentation synchronized with `REQUEST.md` expectations
+    (ADVICE.md:74).
+  - Added a Synapse compatibility and Ubuntu Server bridge checklist—including Redis contract notes, deployment guards,
+    and smoke-test commands—so future engineers can validate that dashboard actions continue to drive Synapse behavior
+    without breaking existing code paths (ADVICE.md:756).
+
+  Tests:
+
+  - not run (documentation-only change)
+
+  Next steps: keep the checklist updated whenever REQUEST.md evolves and link concrete feature tickets to the acceptance
+  bullets so we always have evidence for each release.

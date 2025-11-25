@@ -71,6 +71,23 @@
 - SSL/TLS configuration
 - Automated deployment scripts
 
+## REQUEST.md Alignment Checklist
+
+The Dashboard roadmap must stay synchronized with the authoritative requirements in `REQUEST.md` (v2.0). Use the checklist below to ensure every delivery aligns with the mandated architecture and feature set.
+
+- **Architecture & Authority Segregation (Req. §I-II)**: Preserve Synapse as the execution engine while the dashboard manipulates only database/Redis state. All work described in this guide (shared PostgreSQL schemas, Redis pub/sub invalidations, Docker multi-service layout) already adheres to the “controller vs. executor” model and must never introduce direct RPC calls into Synapse core.
+- **User Lifecycle Management (Req. §III)**: Registration automation, group membership, quota enforcement, and AI limits must be backed by dashboard schema tables with admin tooling. Week 11-12 tasks explicitly cover registration workflows; link them with the permissions, storage quota logic, and rate limit knobs demanded in §III.
+- **Risk Control Framework (Req. §IV)**: Muting/soft-ban/hard-ban/soft-delete levels exist in the backend today but require frontend controls plus Redis invalidation flows. Ensure cache TTLs and pub/sub events reflect the penalty tiers and escalation paths laid out in §IV, and verify action logging per §VIII.
+- **Appeal System (Req. §V)**: Bot + admin-facing appeal endpoints are implemented; this guide’s Phase 2 ensures the Matrix bot, email escalation hooks, and rate limits match §V’s workflow (channel intake, review SLA, frequency throttles).
+- **Media Storage Policies (Req. §VI)**: Phase 3 introduces policy inheritance, deduplication, cooling-period deletion, and encrypted media handling. When implementing MinIO/S3 integrations ensure overrides respect the hierarchy in §VI and use the metadata schema already present.
+- **Two-Factor Authentication (Req. §VII)**: Phase 4 describes secondary password + TOTP + friend verification tracks. Tie those epics to §VII by persisting recovery keys, device trust, and email verification data within the dashboard schema and never touching Synapse’s native auth tables directly.
+- **Audit & Logging (Req. §VIII)**: Operation logs already land in `operation_logs`; upcoming frontend work must expose filtering/export along with retention policies (per §VIII). Keep immutable append-only semantics.
+- **Client Customization (Req. §IX)**: The frontend backlog must bake in customizable registration/login/account pages and AI-surface toggles so they can be branded without touching Synapse clients, satisfying §IX’s constraints.
+- **Dashboard Frontend (Req. §X)**: Every page described in §X has a corresponding milestone above (overview, user management, policy, sync/media browser, appeals, audit, registration applications, and confirmation modals). Use the provided component folder structure to keep parity.
+- **Technical & Non-Functional Constraints (Req. §XI)**: Maintain the documented performance ceilings (<200ms P95), security baselines (JWT + RBAC + rate limits), maintainability (typed layers, lint/test gates), scalability (horizontal-ready Docker services), and compatibility (works headless + Ubuntu Server) noted in §XI.
+- **Docker Deployment Requirements (Req. §XII)**: The docker-compose snippet plus deployment scripts already match the multi-service blueprint (§XII.1-4). When extending them, keep all services bound to localhost networks, apply health checks, and mount volumes exactly as specified.
+- **Acceptance Criteria (Req. §XIII)**: Treat each acceptance section as a gating checklist for releases: do not close a phase until the relevant functional verification (risk control, appeals, media, 2FA, audit, performance) and Docker validation are demonstrably passing, with evidence captured in REPORTS.md.
+
 ## Implementation Priority Framework
 
 ### Phase 1: Critical Foundation (Weeks 1-4) **IMMEDIATE PRIORITY**
@@ -734,6 +751,42 @@ find "$BACKUP_DIR" -name "*.tar.gz" -mtime +7 -delete
 find "$BACKUP_DIR" -name "*.rdb" -mtime +7 -delete
 
 echo "Backup completed: $DATE"
+```
+
+## Synapse Compatibility & Ubuntu Bridge Checklist
+
+1. **Shared Database Discipline**: Keep Synapse-owned tables in the `public` schema untouched; all dashboard enforcement logic (risk tiers, registrations, storage quotas, 2FA, logging) must stay inside the `dashboard` schema and interact with Synapse through persisted state only, as mandated in `REQUEST.md §II`.
+2. **Redis Contract**: Publish invalidation events on the configured `dashboard.redis_channel_user_events` channels and keep Synapse subscribed through its `DashboardPubSubListener`; avoid introducing bespoke IPC paths so upgrades of the core server remain painless.
+3. **API Surface Compatibility**: Any new REST endpoints must sit under `/api/v1/dashboard/*` or `/api/v1/bot/*` without mutating Synapse’s native Matrix APIs. Validate RBAC scopes against the 5-tier hierarchy before calling into downstream services.
+4. **Deployment Isolation**: Bind every container/service to `127.0.0.1` inside Docker networks, mirroring the internal-only deployment constraint. Expose traffic through Nginx only when TLS is configured and secrets are mounted read-only.
+5. **Ubuntu Server Operations**: Target Ubuntu Server 22.04 LTS for CI smoke tests. Ensure Docker/Compose installs via the documented commands, enable `systemd` units for docker + nginx, and confirm AppArmor/ufw policies match the REQUEST security sections.
+6. **Server Bridge Verification**: After every release, run the matrix below to certify the dashboard still bridges administrative intent to Synapse:
+   - User freeze/unfreeze → verify Synapse login success/failure.
+   - Risk level promotion → ensure message send is blocked/unblocked accordingly.
+   - Appeal approval → check Redis invalidation triggers a cache refresh.
+   - Storage policy update → upload media via Synapse and confirm MinIO lifecycle rules.
+
+### Ubuntu Server Smoke Test Commands
+```bash
+# Assume services deployed via docker compose on Ubuntu Server 22.04
+sudo systemctl status docker
+sudo systemctl status nginx
+
+# Validate containers and bridge connectivity
+docker compose ps
+curl -s http://127.0.0.1:3000/api/v1/health
+curl -s http://127.0.0.1:8008/_matrix/static/
+
+# Confirm dashboard actions propagate to Synapse (replace $ADMIN_JWT and matrix IDs)
+curl -X PUT http://127.0.0.1:3000/api/v1/users/%40test1:example.com \
+  -H "Authorization: Bearer $ADMIN_JWT" \
+  -H "Content-Type: application/json" \
+  -d '{"riskLevel":"soft_ban"}'
+
+# Expect the Synapse login for the affected account to fail while the ban is active
+curl -X POST http://127.0.0.1:8008/_matrix/client/r0/login \
+  -H "Content-Type: application/json" \
+  -d '{"type":"m.login.password","user":"@test1:example.com","password":"hunter2"}'
 ```
 
 ## Success Metrics
