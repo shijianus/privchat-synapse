@@ -1,10 +1,11 @@
-import Redis, { RedisOptions } from 'ioredis';
+锘縤mport Redis, { RedisOptions } from 'ioredis';
 
 import { config } from '../config/env';
 import { logger } from '../utils/logger';
 
 /**
- * Redis 连接封装，负责缓存与 Pub/Sub 服务
+ * Thin wrapper around ioredis that offers shared helpers for caching, pub/sub,
+ * and authentication related operations.
  */
 export class RedisService {
   private publisher?: Redis;
@@ -28,15 +29,16 @@ export class RedisService {
     this.subscriber = new Redis(options);
 
     this.publisher.on('error', (error) => {
-      logger.error('Redis 发布通道错误: %s', error.message);
+      logger.error('Redis publish connection failed: %s', error.message);
     });
+
     this.subscriber.on('error', (error) => {
-      logger.error('Redis 订阅通道错误: %s', error.message);
+      logger.error('Redis subscribe connection failed: %s', error.message);
     });
   }
 
   /**
-   * 将任意对象以 JSON 格式缓存一段时间
+   * Store a JSON payload with the supplied TTL.
    */
   async cacheJson(key: string, value: unknown, ttlSeconds: number): Promise<void> {
     const client = this.ensurePublisher();
@@ -44,7 +46,7 @@ export class RedisService {
   }
 
   /**
-   * 读取 JSON 缓存并解析返回
+   * Read the cached JSON payload and deserialize it.
    */
   async readJson<T>(key: string): Promise<T | null> {
     const client = this.ensurePublisher();
@@ -53,7 +55,7 @@ export class RedisService {
   }
 
   /**
-   * 发布消息用于通知 Synapse 或其他进程
+   * Publish serialized payloads for cache invalidation events.
    */
   async publish(channel: string, payload: unknown): Promise<number> {
     const client = this.ensurePublisher();
@@ -61,7 +63,7 @@ export class RedisService {
   }
 
   /**
-   * 删除缓存，保证后续请求能重新加载
+   * Remove the specified key from Redis.
    */
   async deleteKey(key: string): Promise<void> {
     const client = this.ensurePublisher();
@@ -69,11 +71,48 @@ export class RedisService {
   }
 
   /**
-   * 订阅指定频道，实时处理消息
+   * Store a plain string value optionally with a TTL.
+   */
+  async setValue(key: string, value: string, ttlSeconds?: number): Promise<void> {
+    const client = this.ensurePublisher();
+    if (ttlSeconds && ttlSeconds > 0) {
+      await client.set(key, value, 'EX', ttlSeconds);
+      return;
+    }
+    await client.set(key, value);
+  }
+
+  /**
+   * Read a plain string value.
+   */
+  async getValue(key: string): Promise<string | null> {
+    const client = this.ensurePublisher();
+    return client.get(key);
+  }
+
+  /**
+   * Increment a counter and return the new value.
+   */
+  async increment(key: string): Promise<number> {
+    const client = this.ensurePublisher();
+    return client.incr(key);
+  }
+
+  /**
+   * Apply a TTL to an existing key.
+   */
+  async expire(key: string, ttlSeconds: number): Promise<void> {
+    const client = this.ensurePublisher();
+    await client.expire(key, ttlSeconds);
+  }
+
+  /**
+   * Subscribe to a channel and forward parsed messages to a handler.
    */
   async subscribe(channel: string, handler: (message: unknown) => void): Promise<void> {
     const client = this.ensureSubscriber();
     await client.subscribe(channel);
+
     client.on('message', (incomingChannel, message) => {
       if (incomingChannel !== channel) {
         return;
@@ -82,21 +121,21 @@ export class RedisService {
       try {
         handler(JSON.parse(message));
       } catch (error) {
-        logger.warn('处理 Redis 消息失败: %s', (error as Error).message);
+        logger.warn('Failed to parse Redis message: %s', (error as Error).message);
       }
     });
   }
 
   private ensurePublisher(): Redis {
     if (!this.publisher) {
-      throw new Error('Redis 发布连接尚未初始化');
+      throw new Error('Redis publisher connection has not been initialised');
     }
     return this.publisher;
   }
 
   private ensureSubscriber(): Redis {
     if (!this.subscriber) {
-      throw new Error('Redis 订阅连接尚未初始化');
+      throw new Error('Redis subscriber connection has not been initialised');
     }
     return this.subscriber;
   }

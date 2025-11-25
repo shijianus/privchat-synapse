@@ -10,6 +10,9 @@ export interface AppConfig {
   readonly port: number;
   readonly logLevel: string;
   readonly jwtSecret: string;
+  readonly jwtRefreshSecret: string;
+  readonly accessTokenTtlSeconds: number;
+  readonly refreshTokenTtlSeconds: number;
   readonly cacheTtlSeconds: number;
   readonly redisUserEventsChannel: string;
   readonly database: {
@@ -43,6 +46,9 @@ export const config: AppConfig = {
   port: toNumber(process.env.PORT, 3100),
   logLevel: process.env.LOG_LEVEL || 'info',
   jwtSecret: process.env.JWT_SECRET || 'change-me',
+  jwtRefreshSecret: process.env.JWT_REFRESH_SECRET || 'change-me-too',
+  accessTokenTtlSeconds: toNumber(process.env.JWT_ACCESS_TTL_SECONDS, 900),
+  refreshTokenTtlSeconds: toNumber(process.env.JWT_REFRESH_TTL_SECONDS, 604800),
   cacheTtlSeconds: toNumber(process.env.DASHBOARD_CACHE_TTL_SECONDS, 300),
   redisUserEventsChannel: process.env.REDIS_USER_EVENTS_CHANNEL || 'dashboard.user_events',
   database: {

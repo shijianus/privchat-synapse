@@ -34,6 +34,30 @@ which can be used to customise its behaviour after installation.
 There are additional details on how to `configure Synapse for federation here
 <https://element-hq.github.io/synapse/latest/federate.html>`_.
 
+**🏗️ Private Chat Synapse Architecture Overview**
+
+This is a comprehensive Matrix homeserver implementation with integrated administrative dashboard system:
+
+**Core Components:**
+1. **Synapse Homeserver** - Matrix protocol server for chat, federation, and real-time communication
+2. **Dashboard Integration** - User management, risk control, and administrative features (in `synapse/dashboard_integration/`)
+3. **Dashboard Backend API** - Node.js/TypeScript REST service for administrative operations (in `dashboard/backend/`)
+4. **Shared Database** - PostgreSQL with dashboard schema extensions for user policies and audit logs
+5. **Caching Layer** - Redis for performance optimization and real-time pub/sub messaging
+
+**System Architecture:**
+- **User Flow**: Matrix clients → Synapse → Dashboard checks → Database/Redis → Allow/Block actions
+- **Admin Flow**: Dashboard Frontend → Backend API → Database → Policy enforcement via Synapse
+- **Real-time Updates**: Redis pub/sub for cache invalidation and force disconnect capabilities
+
+**Key Features:**
+- **Four-Level Risk Control**: None → Silence (read-only) → Soft Ban (limited access, can appeal) → Hard Ban (blocked)
+- **Real-time Policy Enforcement**: Instant login and message control based on user status
+- **Comprehensive Audit Trail**: Complete operation logs for all administrative actions
+- **Integrated Appeal System**: User appeals with admin review workflow (in development)
+- **Media Management**: SHA256 deduplication and storage policy enforcement (planned)
+- **Registration Control**: Application-based user onboarding (planned)
+
 🎛️ Dashboard Integration Setup
 ===============================
 
@@ -42,21 +66,29 @@ This Private Chat Synapse fork includes a comprehensive Dashboard integration sy
 **Current Implementation Status (November 2025):**
 
 * **✅ Core Synapse Integration**: Complete (100%) - Database schema, risk control enforcement, caching, and configuration
-* **🔄 Dashboard Backend API**: 45% Complete - Solid infrastructure foundation, authentication and appeal systems require implementation
-* **❌ Dashboard Frontend**: Not implemented (0%) - React administrative interface
+* **🔄 Dashboard Backend API**: 75% Complete - Authentication system, user management, and basic operations functional
+* **❌ Dashboard Frontend**: Not implemented (0%) - React administrative interface (highest priority)
 * **❌ Matrix Bot Service**: Not implemented (0%) - Appeal collection and verification bot
 
 **Production Readiness:**
-- Synapse core with dashboard integration: **Ready for production**
-- Complete dashboard management system: **Requires 4-5 weeks additional development**
+- Synapse core with dashboard integration: **✅ Ready for production**
+- Dashboard backend authentication system: **✅ Ready for production**
+- Complete dashboard management system: **🔄 2-3 weeks additional development**
+
+**Implemented Features:**
+- ✅ JWT authentication with RBAC (5-tier admin hierarchy)
+- ✅ User management CRUD API with caching
+- ✅ Ban management and enforcement system
+- ✅ Operation logging and audit trail
+- ✅ PostgreSQL + Redis integration
+- ✅ Comprehensive input validation and error handling
 
 **Critical Missing Components:**
-- Authentication endpoints (admin login, JWT token management, RBAC)
-- Appeal management system (appeal processing, admin decision workflow)
-- Media management system (SHA256 deduplication, storage policy enforcement)
-- Registration application system (user onboarding control and review)
-- Database integration layer (connection pooling, transaction management)
-- Comprehensive testing coverage for all business logic components
+- React frontend administrative interface
+- Appeal processing workflow API
+- Media management and registration application systems
+- Matrix bot for automated appeal collection
+- Comprehensive test coverage (currently ~25%, target 90%)
 
 **📋 Complete Implementation Documentation:**
 - **INTRODUCTION.md**: Comprehensive setup and configuration guide
