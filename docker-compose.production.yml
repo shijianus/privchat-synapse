@@ -1,0 +1,398 @@
+# Production Docker Compose configuration
+# Multi-service deployment for Matrix Dashboard System
+version: '3.8'
+
+networks:
+  matrix-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  synapse_data:
+    driver: local
+  synapse_logs:
+    driver: local
+  media_store:
+    driver: local
+  bot_logs:
+    driver: local
+  backend_logs:
+    driver: local
+  frontend_logs:
+    driver: local
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: matrix-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: synapse
+      POSTGRES_USER: synapse
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./dashboard/schema/dashboard_schema.sql:/docker-entrypoint-initdb.d/01-dashboard.sql
+      - ./docker/postgres/postgresql.conf:/etc/postgresql/postgresql.conf
+    networks:
+      - matrix-network
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U synapse"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+
+  # Redis Cache and Pub/Sub
+  redis:
+    image: redis:7-alpine
+    container_name: matrix-redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD} --maxmemory 1gb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+      - ./docker/redis/redis.conf:/etc/redis/redis.conf
+    networks:
+      - matrix-network
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+
+  # Synapse Matrix Homeserver
+  synapse:
+    image: matrixdotorg/synapse:v1.112.0
+    container_name: matrix-synapse
+    restart: unless-stopped
+    environment:
+      SYNAPSE_SERVER_NAME: ${SYNAPSE_SERVER_NAME}
+      SYNAPSE_REPORT_STATS: "no"
+      SYNAPSE_NO_TLS: "1"
+      SYNAPSE_DATABASE: "postgresql://synapse:${POSTGRES_PASSWORD}@postgres:5432/synapse"
+    volumes:
+      - synapse_data:/data
+      - synapse_logs:/logs
+      - ./docker/synapse/homeserver.yaml:/data/homeserver.yaml
+      - ./docker/synapse/log.config:/data/log.config
+      - media_store:/data/media_store
+    networks:
+      - matrix-network
+    ports:
+      - "8008:8008"
+      - "8448:8448"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8008/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2.0'
+        reservations:
+          memory: 1G
+          cpus: '1.0'
+
+  # Dashboard Backend API
+  dashboard-backend:
+    build:
+      context: ./dashboard/backend
+      dockerfile: Dockerfile
+      target: production
+    container_name: dashboard-backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: postgresql://dashboard:${POSTGRES_PASSWORD}@postgres:5432/synapse
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      JWT_SECRET: ${JWT_SECRET}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      LOG_FORMAT: json
+      LOG_LEVEL: info
+    volumes:
+      - backend_logs:/app/logs
+      - media_store:/app/media_store
+    networks:
+      - matrix-network
+    ports:
+      - "3001:3001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      synapse:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Matrix Bot Service
+  dashboard-bot:
+    build:
+      context: ./dashboard/bot
+      dockerfile: Dockerfile
+      target: production
+    container_name: dashboard-bot
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3002
+      DATABASE_URL: postgresql://dashboard:${POSTGRES_PASSWORD}@postgres:5432/synapse
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      JWT_SECRET: ${JWT_SECRET}
+      MATRIX_BOT_USERNAME: ${MATRIX_BOT_USERNAME}
+      MATRIX_BOT_PASSWORD: ${MATRIX_BOT_PASSWORD}
+      MATRIX_BOT_HOMESERVER: ${MATRIX_BOT_HOMESERVER}
+      MATRIX_BOT_DISPLAY_NAME: "申诉助理"
+      BOT_ADMIN_ROOM_ID: ${BOT_ADMIN_ROOM_ID}
+      LOG_FORMAT: json
+      LOG_LEVEL: info
+    volumes:
+      - bot_logs:/app/logs
+    networks:
+      - matrix-network
+    ports:
+      - "3002:3002"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      dashboard-backend:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Dashboard Frontend
+  dashboard-frontend:
+    build:
+      context: ./dashboard/frontend
+      dockerfile: Dockerfile
+      target: production
+    container_name: dashboard-frontend
+    restart: unless-stopped
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL}
+      VITE_MATRIX_SERVER: ${VITE_MATRIX_SERVER}
+      VITE_APP_NAME: "Matrix Dashboard"
+      VITE_APP_VERSION: "1.0.7"
+    networks:
+      - matrix-network
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      dashboard-backend:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.25'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Nginx Reverse Proxy and Load Balancer
+  nginx:
+    image: nginx:alpine
+    container_name: matrix-nginx
+    restart: unless-stopped
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./docker/nginx/matrix.conf:/etc/nginx/conf.d/matrix.conf
+      - ./docker/nginx/dashboard.conf:/etc/nginx/conf.d/dashboard.conf
+      - ./docker/ssl:/etc/nginx/ssl
+      - media_store:/var/www/media:ro
+    networks:
+      - matrix-network
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8448:8448"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      - synapse
+      - dashboard-frontend
+      - dashboard-backend
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+
+  # Monitoring and Observability
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: matrix-prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    networks:
+      - matrix-network
+    ports:
+      - "9090:9090"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: matrix-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./docker/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./docker/grafana/datasources:/etc/grafana/provisioning/datasources
+    networks:
+      - matrix-network
+    ports:
+      - "3003:3000"
+    depends_on:
+      - prometheus
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+
+  # Log aggregation
+  loki:
+    image: grafana/loki:latest
+    container_name: matrix-loki
+    restart: unless-stopped
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./docker/loki/loki-config.yaml:/etc/loki/local-config.yaml
+      - loki_data:/loki
+    networks:
+      - matrix-network
+    ports:
+      - "3100:3100"
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+
+  promtail:
+    image: grafana/promtail:latest
+    container_name: matrix-promtail
+    restart: unless-stopped
+    command: -config.file=/etc/promtail/config.yml
+    volumes:
+      - ./docker/promtail/promtail-config.yml:/etc/promtail/config.yml
+      - /var/log:/var/log:ro
+      - synapse_logs:/var/log/synapse:ro
+      - backend_logs:/var/log/backend:ro
+      - bot_logs:/var/log/bot:ro
+    networks:
+      - matrix-network
+    depends_on:
+      - loki
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+
+volumes:
+  prometheus_data:
+  grafana_data:
+  loki_data:

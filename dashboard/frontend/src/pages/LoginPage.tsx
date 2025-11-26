@@ -1,31 +1,43 @@
-import React, { useState } from 'react';
+import React, { useEffect } from 'react';
+import { useForm } from 'react-hook-form';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { Button, Input, LoadingSpinner } from '../components/ui';
+import { Button, Input } from '../components/ui';
 import { LoginCredentials } from '../types/auth';
 
 export const LoginPage: React.FC = () => {
-  const { login, isLoading, error, clearError } = useAuthStore();
-  const [credentials, setCredentials] = useState<LoginCredentials>({
-    email: '',
-    password: '',
+  const navigate = useNavigate();
+  const { login, isLoading, error, clearError, isAuthenticated } = useAuthStore();
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<LoginCredentials>({
+    defaultValues: {
+      email: '',
+      password: '',
+    },
   });
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    clearError();
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate('/', { replace: true });
+    }
+  }, [isAuthenticated, navigate]);
 
+  const onSubmit = handleSubmit(async (values) => {
+    clearError();
     try {
-      await login(credentials);
+      await login(values);
+      navigate('/', { replace: true });
     } catch (err) {
-      // Error is handled in the store
       console.error('Login failed:', err);
     }
-  };
+  });
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setCredentials(prev => ({ ...prev, [name]: value }));
-  };
+  if (isAuthenticated) {
+    return <Navigate to="/" replace />;
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
@@ -40,7 +52,7 @@ export const LoginPage: React.FC = () => {
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
-          <form className="space-y-6" onSubmit={handleSubmit}>
+          <form className="space-y-6" onSubmit={onSubmit}>
             <Input
               id="email"
               name="email"
@@ -48,9 +60,9 @@ export const LoginPage: React.FC = () => {
               autoComplete="email"
               required
               label="Email address"
-              value={credentials.email}
-              onChange={handleChange}
               placeholder="admin@example.com"
+              error={errors.email?.message}
+              {...register('email', { required: 'Email is required' })}
             />
 
             <Input
@@ -60,9 +72,9 @@ export const LoginPage: React.FC = () => {
               autoComplete="current-password"
               required
               label="Password"
-              value={credentials.password}
-              onChange={handleChange}
               placeholder="Enter your password"
+              error={errors.password?.message}
+              {...register('password', { required: 'Password is required' })}
             />
 
             {error && (

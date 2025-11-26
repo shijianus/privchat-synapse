@@ -1,55 +1,183 @@
-import { AuthState, User, LoginCredentials, RefreshTokenRequest } from '../types/auth';
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+import apiService from '../services/api';
+import {
+  AuthState,
+  User,
+  LoginCredentials,
+  RefreshTokenRequest,
+  ApiError,
+} from '../types/auth';
 
-// TODO: Replace with Zustand implementation once installed
 interface AuthStore extends AuthState {
-  // Actions
   login: (credentials: LoginCredentials) => Promise<void>;
   logout: () => Promise<void>;
-  refreshToken: () => Promise<void>;
+  refreshSession: () => Promise<void>;
   clearError: () => void;
   setLoading: (loading: boolean) => void;
   initializeAuth: () => Promise<void>;
 }
 
-// Mock implementation until Zustand is installed
-const mockAuthStore: AuthStore = {
+const initialState: Omit<AuthState, 'refreshToken'> = {
   user: null,
   token: null,
   isAuthenticated: false,
   permissions: [],
   isLoading: false,
   error: null,
-
-  login: async (credentials: LoginCredentials) => {
-    console.log('Mock login:', credentials);
-    // Mock implementation
-  },
-
-  logout: async () => {
-    console.log('Mock logout');
-  },
-
-  refreshToken: async () => {
-    console.log('Mock refresh token');
-  },
-
-  clearError: () => {
-    mockAuthStore.error = null;
-  },
-
-  setLoading: (loading: boolean) => {
-    mockAuthStore.isLoading = loading;
-  },
-
-  initializeAuth: async () => {
-    console.log('Mock initialize auth');
-  },
 };
 
-export const useAuthStore = () => mockAuthStore;
+const toErrorMessage = (error: unknown): string => {
+  if (typeof error === 'string') {
+    return error;
+  }
+  if (error && typeof error === 'object' && 'message' in error) {
+    return (error as ApiError).message;
+  }
+  return '未知错误，请稍后重试';
+};
 
-// Auth utility functions
-export const hasPermission = (permissions: any[], resource: string, action: string): boolean => {
+export const useAuthStore = create<AuthStore>()(
+  persist(
+    (set, get) => ({
+      ...initialState,
+      refreshToken: null,
+
+      login: async (credentials: LoginCredentials) => {
+        set({ isLoading: true, error: null });
+        try {
+          const response = await apiService.login(credentials);
+          localStorage.setItem('auth_token', response.token);
+          localStorage.setItem('refresh_token', response.refreshToken);
+
+          set({
+            user: response.user,
+            token: response.token,
+            refreshToken: response.refreshToken,
+            permissions: response.user.permissions,
+            isAuthenticated: true,
+            isLoading: false,
+          });
+        } catch (error) {
+          set({
+            ...initialState,
+            refreshToken: null,
+            error: toErrorMessage(error),
+            isLoading: false,
+          });
+          throw error;
+        }
+      },
+
+      logout: async () => {
+        set({ isLoading: true });
+        try {
+          await apiService.logout();
+        } catch (error) {
+          console.error('注销失败：', error);
+        } finally {
+          localStorage.removeItem('auth_token');
+          localStorage.removeItem('refresh_token');
+          set({
+            ...initialState,
+            refreshToken: null,
+            isLoading: false,
+          });
+        }
+      },
+
+      refreshSession: async () => {
+        const storedRefreshToken =
+          get().refreshToken || localStorage.getItem('refresh_token');
+        if (!storedRefreshToken) {
+          throw new Error('缺少刷新令牌，请重新登录');
+        }
+
+        const request: RefreshTokenRequest = {
+          refreshToken: storedRefreshToken,
+        };
+
+        try {
+          const response = await apiService.refreshToken(request);
+          localStorage.setItem('auth_token', response.token);
+          localStorage.setItem('refresh_token', response.refreshToken);
+
+          set({
+            token: response.token,
+            refreshToken: response.refreshToken,
+            user: response.user ?? get().user,
+            permissions: response.user?.permissions ?? get().permissions,
+            isAuthenticated: true,
+          });
+        } catch (error) {
+          localStorage.removeItem('auth_token');
+          localStorage.removeItem('refresh_token');
+          set({
+            ...initialState,
+            refreshToken: null,
+            error: toErrorMessage(error),
+          });
+          throw error;
+        }
+      },
+
+      clearError: () => set({ error: null }),
+
+      setLoading: (loading: boolean) => set({ isLoading: loading }),
+
+      initializeAuth: async () => {
+        const storedToken = localStorage.getItem('auth_token');
+        const storedRefreshToken = localStorage.getItem('refresh_token');
+
+        if (!storedToken || !storedRefreshToken) {
+          set({
+            ...initialState,
+            refreshToken: null,
+          });
+          return;
+        }
+
+        set({
+          isLoading: true,
+          token: storedToken,
+          refreshToken: storedRefreshToken,
+        });
+
+        try {
+          const user = await apiService.getCurrentUser();
+          set({
+            user,
+            permissions: user.permissions,
+            isAuthenticated: true,
+            error: null,
+          });
+        } catch (error) {
+          localStorage.removeItem('auth_token');
+          localStorage.removeItem('refresh_token');
+          set({
+            ...initialState,
+            refreshToken: null,
+            error: toErrorMessage(error),
+          });
+        } finally {
+          set({ isLoading: false });
+        }
+      },
+    }),
+    {
+      name: 'dashboard-auth',
+      partialize: (state) => ({
+        user: state.user,
+        token: state.token,
+        refreshToken: state.refreshToken,
+        isAuthenticated: state.isAuthenticated,
+        permissions: state.permissions,
+      }),
+    }
+  )
+);
+
+const hasPermission = (permissions: User['permissions'], resource: string, action: string): boolean => {
   return permissions.some(
     (permission) => permission.resource === resource && permission.action === action
   );

@@ -39,6 +39,7 @@ export interface AuthResponse {
 export interface AuthState {
   user: User | null;
   token: string | null;
+  refreshToken: string | null;
   isAuthenticated: boolean;
   permissions: Permission[];
   isLoading: boolean;

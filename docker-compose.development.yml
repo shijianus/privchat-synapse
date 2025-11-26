@@ -1,0 +1,157 @@
+# Development Docker Compose configuration
+# Development environment with hot reload and debugging
+version: '3.8'
+
+networks:
+  matrix-dev:
+    driver: bridge
+
+volumes:
+  postgres_dev_data:
+    driver: local
+  redis_dev_data:
+    driver: local
+  synapse_dev_data:
+    driver: local
+
+services:
+  # PostgreSQL Database for Development
+  postgres-dev:
+    image: postgres:15-alpine
+    container_name: matrix-postgres-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: synapse
+      POSTGRES_USER: synapse
+      POSTGRES_PASSWORD: synapse_dev_password
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+      - ./dashboard/schema/dashboard_schema.sql:/docker-entrypoint-initdb.d/01-dashboard.sql
+    networks:
+      - matrix-dev
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U synapse"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Redis for Development
+  redis-dev:
+    image: redis:7-alpine
+    container_name: matrix-redis-dev
+    restart: unless-stopped
+    command: redis-server --requirepass redis_dev_password --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_dev_data:/data
+    networks:
+      - matrix-dev
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Development Dashboard Backend
+  dashboard-backend-dev:
+    build:
+      context: ./dashboard/backend
+      dockerfile: Dockerfile.dev
+    container_name: dashboard-backend-dev
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      DATABASE_URL: postgresql://dashboard:synapse_dev_password@postgres-dev:5432/synapse
+      REDIS_URL: redis://:redis_dev_password@redis-dev:6379
+      JWT_SECRET: dev_jwt_secret_minimum_32_characters_long
+      CORS_ORIGINS: http://localhost:3000,http://localhost:3001
+      LOG_FORMAT: simple
+      LOG_LEVEL: debug
+    volumes:
+      - ./dashboard/backend/src:/app/src
+      - ./dashboard/backend/package.json:/app/package.json
+      - ./dashboard/backend/package-lock.json:/app/package-lock.json
+      - /app/node_modules
+      - backend_dev_logs:/app/logs
+    networks:
+      - matrix-dev
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres-dev:
+        condition: service_healthy
+      redis-dev:
+        condition: service_healthy
+    command: npm run dev
+
+  # Development Dashboard Frontend
+  dashboard-frontend-dev:
+    build:
+      context: ./dashboard/frontend
+      dockerfile: Dockerfile.dev
+    container_name: dashboard-frontend-dev
+    restart: unless-stopped
+    environment:
+      VITE_API_BASE_URL: http://localhost:3001
+      VITE_MATRIX_SERVER: http://localhost:8008
+      VITE_APP_NAME: "Matrix Dashboard (Dev)"
+      VITE_APP_VERSION: "1.0.7-dev"
+    volumes:
+      - ./dashboard/frontend/src:/app/src
+      - ./dashboard/frontend/public:/app/public
+      - ./dashboard/frontend/package.json:/app/package.json
+      - ./dashboard/frontend/package-lock.json:/app/package-lock.json
+      - /app/node_modules
+    networks:
+      - matrix-dev
+    ports:
+      - "3000:3000"
+    depends_on:
+      - dashboard-backend-dev
+    command: npm run dev
+
+  # Development Matrix Bot
+  dashboard-bot-dev:
+    build:
+      context: ./dashboard/bot
+      dockerfile: Dockerfile.dev
+    container_name: dashboard-bot-dev
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      PORT: 3002
+      DATABASE_URL: postgresql://dashboard:synapse_dev_password@postgres-dev:5432/synapse
+      REDIS_URL: redis://:redis_dev_password@redis-dev:6379
+      JWT_SECRET: dev_jwt_secret_minimum_32_characters_long
+      MATRIX_BOT_USERNAME: @appeal_bot_dev:localhost
+      MATRIX_BOT_PASSWORD: bot_dev_password
+      MATRIX_BOT_HOMESERVER: http://localhost:8008
+      MATRIX_BOT_DISPLAY_NAME: "申诉助理(开发)"
+      BOT_ADMIN_ROOM_ID: "!devAdminRoom:localhost"
+      LOG_FORMAT: simple
+      LOG_LEVEL: debug
+    volumes:
+      - ./dashboard/bot/src:/app/src
+      - ./dashboard/bot/package.json:/app/package.json
+      - ./dashboard/bot/package-lock.json:/app/package-lock.json
+      - /app/node_modules
+      - bot_dev_logs:/app/logs
+    networks:
+      - matrix-dev
+    ports:
+      - "3002:3002"
+    depends_on:
+      postgres-dev:
+        condition: service_healthy
+      redis-dev:
+        condition: service_healthy
+    command: npm run dev
+
+volumes:
+  backend_dev_logs:
+  bot_dev_logs:

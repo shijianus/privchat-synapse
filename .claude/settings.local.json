@@ -23,7 +23,8 @@
       "Bash(npm install:*)",
       "Bash(npm cache clean:*)",
       "Bash(npx tailwindcss:*)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(chmod:*)"
     ],
     "deny": [],
     "ask": []

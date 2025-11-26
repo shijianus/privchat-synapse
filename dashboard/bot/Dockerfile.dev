@@ -1,0 +1,41 @@
+# Development Dockerfile for Matrix Bot Service
+# Hot reload and debugging enabled
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Install system dependencies for development
+RUN apk update && apk add && \
+    apk add --no-cache \
+        curl \
+        dumb-init \
+        git \
+        && rm -rf /var/cache/apk/*
+
+# Copy package files
+COPY package*.json ./
+
+# Install all dependencies (including dev)
+RUN npm ci && npm cache clean --force
+
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001 && \
+    chown -R nodejs:nodejs /app
+
+# Create logs directory
+RUN mkdir -p /app/logs && \
+    chown nodejs:nodejs /app/logs
+
+USER nodejs
+
+# Expose port
+EXPOSE 3002
+
+# Health check for development
+HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:3002/health || exit 1
+
+# Development command with hot reload
+ENTRYPOINT ["dumb-init", "--"]
+CMD ["npm", "run", "dev"]
