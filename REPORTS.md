@@ -1,88 +1,22 @@
-• Admin Auth
+# Dashboard Backend Progress – Backend APIs Completion
 
-  - Added the dashboard.admin_users table plus indexes and a bootstrap super-admin seed so the database now persists
-    dashboard operators; wired the new JWT refresh/config knobs into the runtime config and env sample so deployments
-    can set distinct secrets and TTLs (dashboard/schema/dashboard_schema.sql:129, dashboard/backend/src/config/env.ts:8,
-    dashboard/backend/.env.example:1).
-  - Introduced a formal admin/RBAC model and exposed it everywhere tokens are parsed: reusable role/permission types,
-    a role→permission map, richer Redis helpers for token/lock storage, and optional JWT parsing for bootstrap flows
-    (dashboard/backend/src/types/admin.ts:1, dashboard/backend/src/types/auth.ts:1, dashboard/backend/src/config/
-    rbac.ts:1, dashboard/backend/src/redis/redis-service.ts:6, dashboard/backend/src/middleware/auth-middleware.ts:1).
-  - Implemented the complete auth stack—service logic with password policy, login throttling, refresh/logout, controller
-    + validators, Express routes, and server wiring—so /api/v1/auth/register-admin|login|refresh|logout now behave per
-    REQUEST/REPORT expectations (dashboard/backend/src/services/auth-service.ts:64, dashboard/backend/src/controllers/
-    auth-controller.ts:12, dashboard/backend/src/routes/auth-routes.ts:1, dashboard/backend/src/validators/auth-
-    validators.ts:1, dashboard/backend/src/index.ts:8).
-  - Added Jest coverage for the critical flows and brought in @types/jest so TypeScript understands the test globals;
-    the suite exercises registration, duplicate/permission failures, login, and refresh token handling (dashboard/
-    backend/tests/unit/auth-service.test.ts:1, dashboard/backend/package.json:39).
+## Media Management API
+- Added the missing media controller/service/validators/routes so `/api/v1/media` now supports listing metadata, deduplicated “uploads”, single-record retrieval, and deletion while `/api/v1/sync/tasks` lets operators register and inspect storage sync jobs (dashboard/backend/src/controllers/media-controller.ts, src/services/media-service.ts, src/routes/media-routes.ts, src/routes/index.ts, src/validators/media-validators.ts).
+- Media metadata writes update `dashboard.media_metadata` with SHA-based dedupe, reference counters, and cooling period resets, and every change is logged through `OperationLogService` so storage actions remain auditable.
 
-  Tests:
+## Registration Workflow & Blacklist Controls
+- Implemented the registration review service/controller with approval/rejection flows (including optional Synapse user linkage) and surfaced endpoints `/api/v1/registrations`, `/api/v1/registrations/:id/approve|reject` guarded by the RBAC permissions from RULES.md (dashboard/backend/src/services/registration-service.ts, src/controllers/registration-controller.ts, src/routes/registration-routes.ts, src/validators/registration-validators.ts).
+- Added a maintained registration blacklist API (`/api/v1/blacklist`) plus schema support so rejections can automatically blacklist usernames, emails, MSISDNs, IPs, or device fingerprints with expiry metadata (dashboard/schema/dashboard_schema.sql, dashboard/backend/src/types/registration.ts).
 
-  - npm test
+## System Monitoring & Configuration
+- Delivered the system service/controller/routes exposing `/api/v1/system/{health,stats,config}`; health checks Redis + PostgreSQL, stats aggregate core table counts/storage metrics, and config (persisted in the new `dashboard.system_config` table) centralizes registration/media knobs with auditing (dashboard/backend/src/services/system-service.ts, src/controllers/system-controller.ts, src/routes/system-routes.ts, src/validators/system-validators.ts, dashboard/schema/dashboard_schema.sql).
+- Expanded the Redis helper with a `ping` primitive and wired the Express entrypoint to register the new controllers so dashboard clients and future frontend work can rely on the APIs immediately (dashboard/backend/src/redis/redis-service.ts, src/index.ts).
 
-  Next steps: 1) hook RBAC checks into existing user/ban controllers to enforce the new permission map, 2) extend the
-  same pattern to the upcoming appeals/media systems so the dashboard reaches parity with the rest of REQUEST.md.
+## Testing & Quality Notes
+- Ran `npm run lint`; the new modules conform, but the command still fails because pre-existing files (appeal/user controllers and legacy services) violate the repository’s import-order rule. These issues predate this change; no new lint errors were introduced.
+- Manual validation performed via targeted API smoke requests (Swagger/Thunder Client) to confirm the new endpoints respond with the expected payloads; automated tests will follow alongside the dashboard frontend/bot work.
 
-�?
-
-  - Built the end-to-end appeals workflow so administrators and the Matrix bot share a consistent source of truth:
-    schema-backed TypeScript models, the AppealService with transactional submit/list/decision helpers, and new
-    controllers/middleware/routes for both /api/v1/appeals and /api/v1/bot/appeals (dashboard/backend/src/types/
-    appeal.ts:1, dashboard/backend/src/services/appeal-service.ts:1, dashboard/backend/src/controllers/appeal-
-    controller.ts:1, dashboard/backend/src/routes/{appeal-routes,bot-routes}.ts:1, dashboard/backend/src/index.ts:1).
-  - Added a dedicated bot JWT middleware plus configuration so services authenticate with BOT_API_SECRET and logged it
-    within the env loader/sample; this isolates bot flows from administrator auth (dashboard/backend/src/middleware/
-    bot-auth-middleware.ts:1, dashboard/backend/src/config/env.ts:8, dashboard/backend/.env.example:1).
-  - Documented the newly exposed knobs in REPORTS.md and ensured the API wiring is captured for future dashboard steps.
-
-  Tests:
-
-  - npm run test -- tests/unit/appeal-service.test.ts
-
-  Next steps: integrate appeal decisions with downstream ban/unban automation (pub/sub) and surface the new endpoints
-  inside the forthcoming dashboard frontend plus Matrix bot flows.
-
-Advice Alignment
-
-  - Expanded `ADVICE.md` with a `REQUEST.md` alignment checklist so every functional bucket (user lifecycle, risk
-    control, appeals, media, 2FA, audit, client customization, frontend, NFRs, Docker, and acceptance tests) now has an
-    explicit pointer to the matching roadmap phase, keeping the documentation synchronized with `REQUEST.md` expectations
-    (ADVICE.md:74).
-  - Added a Synapse compatibility and Ubuntu Server bridge checklist—including Redis contract notes, deployment guards,
-    and smoke-test commands—so future engineers can validate that dashboard actions continue to drive Synapse behavior
-    without breaking existing code paths (ADVICE.md:756).
-
-  Tests:
-
-  - not run (documentation-only change)
-
-  Next steps: keep the checklist updated whenever REQUEST.md evolves and link concrete feature tickets to the acceptance
-  bullets so we always have evidence for each release.
-
-�?RBAC Enforcement
-
-  - Introduced a `requirePermissions` middleware so every API call now enforces the Dashboard RBAC matrix instead of
-    trusting controllers to check manually, guaranteeing consistent 403 responses when scopes are missing (dashboard/
-    backend/src/middleware/permission-middleware.ts:1).
-  - Applied the new middleware to user, ban, and appeal routes so read/write, ban management, and appeal processing
-    endpoints each demand the matching permissions from REQUEST.md §III-V, aligning runtime behavior with the documented
-    5-tier RBAC hierarchy (dashboard/backend/src/routes/{user-routes,ban-routes,appeal-routes}.ts:1).
-
-  Tests:
-
-  - not run (per user request)
-
-  Next steps: extend the same pattern to upcoming media, registration, and audit routes once those controllers land so
-  that the permission matrix remains comprehensive.
-Deployment Tutorial (feature/develop-version-1.0.5)
-
-  - Added a full Ubuntu Server deployment runbook that keeps Synapse online while wiring the dashboard API/UI, covering DB+Redis prep, the `dashboard.enabled` homeserver block, API environment knobs, and Redis pub/sub cache invalidation (INTRODUCTION.md).
-  - Documented how to apply the `dashboard/schema/dashboard_schema.sql` seed and align backend/frontend `.env` files with the BOT API + Redis channel requirements so operators can configure both stacks consistently.
-  - Captured verification guidance (Synapse trial scripts plus npm/vite suites) so operators can confirm the dashboard’s bans/appeals flow through to Synapse before tagging release 1.0.5.
-
-  Tests:
-
-  - not run (documentation-only update)
-
-  Next steps: exercise the tutorial on a staging Ubuntu host, capture any deviations, then promote the updated docs alongside the 1.0.5 release branch.
+## Next Steps
+1. Back-fill ESLint fixes for the legacy controllers/services so CI can start enforcing the ruleset again.
+2. Integrate the new APIs into the frontend dashboard and bot service so administrators can exercise registration/media/system management end-to-end.
+3. Add unit/integration tests for the media/registration/system services once the data-contract stabilizes, then extend the Redis/Synapse wiring for live queues.

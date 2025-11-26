@@ -5,9 +5,9 @@ CREATE SCHEMA IF NOT EXISTS dashboard;
 CREATE TABLE IF NOT EXISTS dashboard.user_profiles (
     id BIGSERIAL PRIMARY KEY,
     synapse_user_id TEXT NOT NULL UNIQUE,
-    user_group TEXT NOT NULL DEFAULT 'general',
-    registration_status TEXT NOT NULL DEFAULT 'active',
-    risk_level TEXT NOT NULL DEFAULT 'low',
+    user_group TEXT NOT NULL DEFAULT 'general' CHECK (user_group IN ('free', 'standard', 'premium', 'enterprise')),
+    registration_status TEXT NOT NULL DEFAULT 'active' CHECK (registration_status IN ('pending', 'active', 'suspended', 'deleted')),
+    risk_level TEXT NOT NULL DEFAULT 'low' CHECK (risk_level IN ('low', 'medium', 'high', 'critical')),
     last_login_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS dashboard.operation_logs (
 );
 
 CREATE INDEX IF NOT EXISTS operation_logs_actor_idx ON dashboard.operation_logs(actor_id);
+CREATE INDEX IF NOT EXISTS operation_logs_target_idx ON dashboard.operation_logs(target_synapse_user_id) WHERE target_synapse_user_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS dashboard.media_metadata (
     id BIGSERIAL PRIMARY KEY,
@@ -109,7 +110,31 @@ CREATE TABLE IF NOT EXISTS dashboard.registration_applications (
     device_fingerprint TEXT,
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
     reviewer TEXT,
+    reviewer_note TEXT,
+    synapse_user_id TEXT,
+    decided_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS registration_applications_status_idx
+    ON dashboard.registration_applications(status);
+
+CREATE TABLE IF NOT EXISTS dashboard.registration_blacklist (
+    id BIGSERIAL PRIMARY KEY,
+    type TEXT NOT NULL CHECK (type IN ('username', 'email', 'msisdn', 'ip_address', 'device_fingerprint')),
+    value TEXT NOT NULL,
+    reason TEXT,
+    created_by TEXT NOT NULL,
+    expires_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (type, value)
+);
+
+CREATE TABLE IF NOT EXISTS dashboard.system_config (
+    config_key TEXT PRIMARY KEY,
+    config_value JSONB NOT NULL,
+    updated_by TEXT,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

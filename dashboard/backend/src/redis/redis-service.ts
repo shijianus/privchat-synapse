@@ -126,6 +126,14 @@ export class RedisService {
     });
   }
 
+  /**
+   * 对 Redis 执行一次 PING 检查
+   */
+  async ping(): Promise<string> {
+    const client = this.ensurePublisher();
+    return client.ping();
+  }
+
   private ensurePublisher(): Redis {
     if (!this.publisher) {
       throw new Error('Redis publisher connection has not been initialised');

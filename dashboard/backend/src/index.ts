@@ -5,23 +5,29 @@ import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import morgan from 'morgan';
 
+import { config } from './config/env';
 import { AppealController } from './controllers/appeal-controller';
 import { AuthController } from './controllers/auth-controller';
 import { BanController } from './controllers/ban-controller';
+import { MediaController } from './controllers/media-controller';
+import { RegistrationController } from './controllers/registration-controller';
+import { SystemController } from './controllers/system-controller';
 import { UserController } from './controllers/user-controller';
-import { config } from './config/env';
 import { DatabaseService } from './database/database-service';
 import { authMiddleware } from './middleware/auth-middleware';
 import { errorHandler } from './middleware/error-handler';
 import { RedisService } from './redis/redis-service';
 import { createApiRouter } from './routes';
 import { createAuthRoutes } from './routes/auth-routes';
-import { createHealthRoutes } from './routes/health-routes';
 import { createBotRoutes } from './routes/bot-routes';
-import { AuthService } from './services/auth-service';
+import { createHealthRoutes } from './routes/health-routes';
 import { AppealService } from './services/appeal-service';
+import { AuthService } from './services/auth-service';
 import { BanService } from './services/ban-service';
+import { MediaService } from './services/media-service';
 import { OperationLogService } from './services/operation-log-service';
+import { RegistrationService } from './services/registration-service';
+import { SystemService } from './services/system-service';
 import { UserService } from './services/user-service';
 import { httpLogStream, logger } from './utils/logger';
 
@@ -45,11 +51,17 @@ const startServer = async (): Promise<void> => {
     operationLogService
   );
   const authService = new AuthService(databaseService, redisService, operationLogService);
+  const mediaService = new MediaService(databaseService, operationLogService);
+  const registrationService = new RegistrationService(databaseService, operationLogService);
+  const systemService = new SystemService(databaseService, redisService, operationLogService);
 
   const userController = new UserController(userService, banService);
   const banController = new BanController(banService);
   const appealController = new AppealController(appealService);
   const authController = new AuthController(authService);
+  const mediaController = new MediaController(mediaService);
+  const registrationController = new RegistrationController(registrationService);
+  const systemController = new SystemController(systemService);
 
   const app = express();
   const limiter = rateLimit({
@@ -72,7 +84,14 @@ const startServer = async (): Promise<void> => {
   app.use(
     '/api/v1',
     authMiddleware,
-    createApiRouter({ userController, banController, appealController })
+    createApiRouter({
+      userController,
+      banController,
+      appealController,
+      mediaController,
+      registrationController,
+      systemController,
+    })
   );
 
   app.use(errorHandler);

@@ -4,3 +4,6 @@ export * from './operation-log';
 export * from './admin';
 export * from './auth';
 export * from './appeal';
+export * from './media';
+export * from './registration';
+export * from './system';
