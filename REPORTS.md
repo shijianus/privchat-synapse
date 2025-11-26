@@ -75,3 +75,14 @@ Advice Alignment
 
   Next steps: extend the same pattern to upcoming media, registration, and audit routes once those controllers land so
   that the permission matrix remains comprehensive.
+Deployment Tutorial (feature/develop-version-1.0.5)
+
+  - Added a full Ubuntu Server deployment runbook that keeps Synapse online while wiring the dashboard API/UI, covering DB+Redis prep, the `dashboard.enabled` homeserver block, API environment knobs, and Redis pub/sub cache invalidation (INTRODUCTION.md).
+  - Documented how to apply the `dashboard/schema/dashboard_schema.sql` seed and align backend/frontend `.env` files with the BOT API + Redis channel requirements so operators can configure both stacks consistently.
+  - Captured verification guidance (Synapse trial scripts plus npm/vite suites) so operators can confirm the dashboard’s bans/appeals flow through to Synapse before tagging release 1.0.5.
+
+  Tests:
+
+  - not run (documentation-only update)
+
+  Next steps: exercise the tutorial on a staging Ubuntu host, capture any deviations, then promote the updated docs alongside the 1.0.5 release branch.
