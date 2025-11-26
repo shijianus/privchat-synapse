@@ -1,6 +1,7 @@
 import { Router } from 'express';
 
 import { AppealController } from '../controllers/appeal-controller';
+import { TwoFactorController } from '../controllers/two-factor-controller';
 import { botAuthMiddleware } from '../middleware/bot-auth-middleware';
 import { validateBody, validateParams } from '../middleware/validate-request';
 import {
@@ -8,9 +9,11 @@ import {
   botMessageSchema,
   botSubmitAppealSchema,
 } from '../validators/appeal-validators';
+import { friendVerificationSchema } from '../validators/two-factor-validators';
 
 export interface BotRouteDependencies {
   readonly appealController: AppealController;
+  readonly twoFactorController: TwoFactorController;
 }
 
 /**
@@ -32,6 +35,13 @@ export const createBotRoutes = (deps: BotRouteDependencies): Router => {
     validateParams(appealIdParamSchema),
     validateBody(botMessageSchema),
     deps.appealController.appendAppealMessageFromBot
+  );
+
+  router.post(
+    '/2fa/friend-verify',
+    botAuthMiddleware,
+    validateBody(friendVerificationSchema),
+    deps.twoFactorController.verifyFriend
   );
 
   return router;

@@ -13,7 +13,17 @@
       "Bash(git config:*)",
       "Bash(cp:*)",
       "Bash(mv:*)",
-      "Bash(touch:*)"
+      "Bash(touch:*)",
+      "Bash(pip:*)",
+      "Bash(rustc:*)",
+      "Bash(python -m pip install:*)",
+      "Bash(python:*)",
+      "Bash(npm create vite:*)",
+      "Bash(npm install @headlessui/react @heroicons/react zustand react-router-dom @tanstack/react-query axios react-hook-form @hookform/resolvers zod recharts react-hot-toast)",
+      "Bash(npm install:*)",
+      "Bash(npm cache clean:*)",
+      "Bash(npx tailwindcss:*)",
+      "Bash(npm run build:*)"
     ],
     "deny": [],
     "ask": []

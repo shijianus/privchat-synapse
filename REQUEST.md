@@ -775,6 +775,75 @@ class PluginManager {
 
 ---
 
-**Document Version**: 2.0
-**Last Updated**: 2025-11-23
-**Extension Added**: Advanced Feature Recommendations and Future Scalability Planning
+## XIV. Testing Completion and Deployment Notification
+
+### Testing Completion Notification Requirement
+
+When the dashboard system development is completed and ready for testing, the development team must provide explicit notification to the project stakeholder with the following information:
+
+#### Required Notification Content
+1. **Development Completion Status**: Confirmation that all required components from REQUEST.md have been implemented
+2. **Testing Readiness Assessment**: Statement that the system is ready for comprehensive testing
+3. **Deployment Instructions**: Clear, step-by-step instructions for deploying the complete system
+4. **Access Credentials**: All necessary usernames, passwords, and access information
+5. **Test Scenario Guide**: Recommended test cases and validation procedures
+6. **Known Limitations**: Any known issues or limitations that should be considered during testing
+
+#### Notification Format
+The notification must be provided in the following format:
+```
+【通知】Synapse Dashboard 开发已完成，可以进行测试
+
+开发完成状态：
+- [ ] 所有 REQUEST.md 要求的功能已实现
+- [ ] Dashboard 后端 API 已完成
+- [ ] Dashboard 前端界面已完成
+- [ ] Matrix Bot 服务已完成
+- [ ] Docker 部署配置已完成
+- [ ] 数据库迁移脚本已完成
+- [ ] 基础测试已通过
+
+测试就绪状态：
+- 系统已准备好进行全面测试
+- 部署说明已准备就绪
+- 访问凭证已提供
+
+部署说明：
+[详细的部署步骤说明]
+
+访问凭证：
+- Dashboard 管理界面：[URL] (用户名：[username]，密码：[password])
+- Synapse 服务器：[配置信息]
+- 数据库访问：[连接信息]
+
+测试指南：
+[推荐的测试场景和验证步骤]
+
+已知限制：
+[任何已知的问题或限制]
+
+请在收到此通知后进行测试验证，如有问题请及时反馈。
+```
+
+#### Notification Trigger
+This notification should be sent when ALL of the following conditions are met:
+1. All backend APIs are implemented and functional
+2. Frontend dashboard is complete and integrated with backend
+3. Matrix Bot service is operational
+4. Docker deployment configuration is complete
+5. Basic automated tests pass
+6. System is ready for stakeholder testing
+
+#### Testing Expectation
+Upon receiving this notification, the project stakeholder will:
+1. Review the completion status checklist
+2. Follow the deployment instructions
+3. Perform comprehensive testing of all features
+4. Provide feedback on any issues found
+5. Confirm test results and system acceptance
+
+---
+
+**Document Version**: 2.1
+**Last Updated**: 2025-11-25
+**Extension Added**: Testing Completion and Deployment Notification Requirements

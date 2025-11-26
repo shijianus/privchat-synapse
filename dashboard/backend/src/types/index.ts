@@ -7,3 +7,5 @@ export * from './appeal';
 export * from './media';
 export * from './registration';
 export * from './system';
+export * from './two-factor';
+export * from './message-sync';

@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { AppealController } from '../controllers/appeal-controller';
 import { BanController } from '../controllers/ban-controller';
 import { MediaController } from '../controllers/media-controller';
+import { MessageSyncController } from '../controllers/message-sync-controller';
 import { RegistrationController } from '../controllers/registration-controller';
 import { SystemController } from '../controllers/system-controller';
 import { UserController } from '../controllers/user-controller';
@@ -13,6 +14,7 @@ import { createMediaRoutes, createSyncTaskRoutes } from './media-routes';
 import { createRegistrationRoutes } from './registration-routes';
 import { createSystemRoutes } from './system-routes';
 import { createUserRoutes } from './user-routes';
+import { createMessageSyncRoutes } from './message-sync-routes';
 
 export interface RouteDependencies {
   readonly userController: UserController;
@@ -21,6 +23,7 @@ export interface RouteDependencies {
   readonly mediaController: MediaController;
   readonly registrationController: RegistrationController;
   readonly systemController: SystemController;
+  readonly messageSyncController: MessageSyncController;
 }
 
 /**
@@ -36,6 +39,7 @@ export const createApiRouter = (deps: RouteDependencies): Router => {
   router.use('/sync', createSyncTaskRoutes(deps.mediaController));
   router.use('/', createRegistrationRoutes(deps.registrationController));
   router.use('/system', createSystemRoutes(deps.systemController));
+  router.use('/message-sync', createMessageSyncRoutes(deps.messageSyncController));
 
   return router;
 };

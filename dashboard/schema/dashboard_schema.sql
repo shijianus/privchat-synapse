@@ -138,6 +138,83 @@ CREATE TABLE IF NOT EXISTS dashboard.system_config (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS dashboard.user_2fa_settings (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL UNIQUE REFERENCES dashboard.user_profiles(id) ON DELETE CASCADE,
+    secondary_password_hash TEXT,
+    totp_secret TEXT,
+    totp_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    email_2fa_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    phone_2fa_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    safety_codes TEXT[],
+    recovery_key_encrypted TEXT,
+    trusted_device_limit INTEGER NOT NULL DEFAULT 5,
+    last_verified_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS dashboard.user_devices (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES dashboard.user_profiles(id) ON DELETE CASCADE,
+    device_id TEXT NOT NULL,
+    device_name TEXT,
+    is_trusted BOOLEAN NOT NULL DEFAULT FALSE,
+    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_ip TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (user_id, device_id)
+);
+
+CREATE INDEX IF NOT EXISTS user_devices_lookup_idx
+    ON dashboard.user_devices(user_id, is_trusted, last_seen_at DESC);
+
+CREATE TABLE IF NOT EXISTS dashboard.two_factor_challenges (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES dashboard.user_profiles(id) ON DELETE CASCADE,
+    method TEXT NOT NULL CHECK (method IN ('email', 'sms')),
+    code_hash TEXT NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    consumed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS two_factor_challenges_active_idx
+    ON dashboard.two_factor_challenges(user_id, method, expires_at)
+    WHERE consumed_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS dashboard.friend_verification_requests (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES dashboard.user_profiles(id) ON DELETE CASCADE,
+    verification_hash TEXT NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'verified', 'revoked', 'expired')),
+    verifier_matrix_id TEXT,
+    verified_at TIMESTAMPTZ,
+    revocation_expires_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS friend_verification_status_idx
+    ON dashboard.friend_verification_requests(user_id, status, expires_at DESC);
+
+CREATE TABLE IF NOT EXISTS dashboard.pending_messages (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES dashboard.user_profiles(id) ON DELETE CASCADE,
+    room_id TEXT NOT NULL,
+    sender_matrix_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    content JSONB,
+    media_hash TEXT,
+    received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    synced BOOLEAN NOT NULL DEFAULT FALSE,
+    synced_at TIMESTAMPTZ,
+    failure_reason TEXT
+);
+
+CREATE INDEX IF NOT EXISTS pending_messages_lookup_idx
+    ON dashboard.pending_messages(user_id, synced, received_at);
+
 ALTER TABLE dashboard.user_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE dashboard.user_bans ENABLE ROW LEVEL SECURITY;
 
