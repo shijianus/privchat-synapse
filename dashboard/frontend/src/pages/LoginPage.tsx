@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { Button, Input } from '../components/ui';
-import { LoginCredentials } from '../types/auth';
+import type { LoginCredentials } from '../types/auth';
 
 export const LoginPage: React.FC = () => {
   const navigate = useNavigate();
@@ -55,7 +55,6 @@ export const LoginPage: React.FC = () => {
           <form className="space-y-6" onSubmit={onSubmit}>
             <Input
               id="email"
-              name="email"
               type="email"
               autoComplete="email"
               required
@@ -67,7 +66,6 @@ export const LoginPage: React.FC = () => {
 
             <Input
               id="password"
-              name="password"
               type="password"
               autoComplete="current-password"
               required

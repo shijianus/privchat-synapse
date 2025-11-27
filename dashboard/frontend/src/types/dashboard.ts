@@ -1,17 +1,20 @@
 // Dashboard domain types
 
+export type UserGroup = 'free' | 'standard' | 'premium' | 'enterprise' | 'general';
+
+export type RegistrationStatus = 'pending' | 'active' | 'suspended' | 'deleted';
+
+export type RiskLevel = 'low' | 'medium' | 'high' | 'critical';
+
 export interface UserProfile {
-  id: string;
+  id: number;
   synapseUserId: string;
-  email: string;
-  name: string;
-  avatarUrl?: string;
-  userGroup: 'free' | 'standard' | 'premium' | 'enterprise';
-  riskLevel: 'low' | 'medium' | 'high' | 'critical';
-  registrationStatus: 'pending' | 'approved' | 'rejected';
+  userGroup: UserGroup;
+  registrationStatus: RegistrationStatus;
+  riskLevel: RiskLevel;
+  lastLoginAt?: string | null;
   createdAt: string;
   updatedAt: string;
-  lastActiveAt?: string;
 }
 
 export interface UserBan {
@@ -104,7 +107,9 @@ export interface PaginationResponse<T> {
 
 export interface FilterParams {
   search?: string;
+  keyword?: string;
   userGroup?: string;
+  registrationStatus?: string;
   riskLevel?: string;
   banType?: string;
   status?: string;

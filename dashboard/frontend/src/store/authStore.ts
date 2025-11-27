@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import apiService from '../services/api';
-import {
+import type {
   AuthState,
   User,
   LoginCredentials,

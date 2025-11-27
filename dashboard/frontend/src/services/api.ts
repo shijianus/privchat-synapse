@@ -1,5 +1,6 @@
-import axios, { AxiosResponse, AxiosError } from 'axios';
-import {
+import axios from 'axios';
+import type { AxiosResponse, AxiosError } from 'axios';
+import type {
   LoginCredentials,
   AuthResponse,
   RefreshTokenRequest,
@@ -110,28 +111,29 @@ export class ApiService {
   }
 
   // User management endpoints
-  async getUsers(
-    pagination: PaginationParams,
-    filters?: FilterParams
-  ): Promise<PaginationResponse<UserProfile>> {
+  async getUsers(filters?: FilterParams): Promise<UserProfile[]> {
     const params = new URLSearchParams();
 
-    Object.entries(pagination).forEach(([key, value]) => {
-      if (value !== undefined) {
-        params.append(key, value.toString());
-      }
-    });
-
-    if (filters) {
-      Object.entries(filters).forEach(([key, value]) => {
-        if (value !== undefined && value !== '') {
-          params.append(key, value);
-        }
-      });
+    if (filters?.userGroup) {
+      params.append('userGroup', filters.userGroup);
     }
 
-    const endpoint = `/users?${params.toString()}`;
-    return this.get<PaginationResponse<UserProfile>>(endpoint);
+    if (filters?.registrationStatus) {
+      params.append('registrationStatus', filters.registrationStatus);
+    }
+
+    if (filters?.riskLevel) {
+      params.append('riskLevel', filters.riskLevel);
+    }
+
+    const keyword = filters?.keyword || filters?.search;
+    if (keyword) {
+      params.append('keyword', keyword);
+    }
+
+    const query = params.toString();
+    const endpoint = query ? `/users?${query}` : '/users';
+    return this.get<UserProfile[]>(endpoint);
   }
 
   async getUser(id: string): Promise<UserProfile> {
