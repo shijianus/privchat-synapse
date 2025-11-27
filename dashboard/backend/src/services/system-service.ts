@@ -157,7 +157,7 @@ export class SystemService {
     await this.operationLogService.record({
       actorId,
       action: 'system_config_update',
-      metadata: updates,
+      metadata: (updates as unknown) as Record<string, unknown>,
     });
 
     return next;

@@ -1,4 +1,4 @@
-import { Pool, PoolClient, PoolConfig } from 'pg';
+import { Pool, PoolClient, PoolConfig, QueryResultRow } from 'pg';
 
 import { config } from '../config/env';
 import { logger } from '../utils/logger';
@@ -38,7 +38,7 @@ export class DatabaseService {
   /**
    * 执行单次查询并返回全部结果
    */
-  async query<T>(sql: string, params: unknown[] = []): Promise<T[]> {
+  async query<T extends QueryResultRow>(sql: string, params: unknown[] = []): Promise<T[]> {
     const pool = this.ensurePool();
     const client = await pool.connect();
 
@@ -74,7 +74,7 @@ export class DatabaseService {
   /**
    * 允许调用方直接复用事务中的 client
    */
-  async queryWithClient<T>(
+  async queryWithClient<T extends QueryResultRow>(
     client: PoolClient,
     sql: string,
     params: unknown[] = []

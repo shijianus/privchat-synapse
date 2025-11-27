@@ -161,7 +161,7 @@ export class UserService {
       actorId,
       action: 'update_user_profile',
       targetSynapseUserId: synapseUserId,
-      metadata: payload,
+      metadata: (payload as unknown) as Record<string, unknown>,
     });
 
     await this.redisService.cacheJson(this.getCacheKey(synapseUserId), profile, config.cacheTtlSeconds);

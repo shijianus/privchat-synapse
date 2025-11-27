@@ -138,7 +138,7 @@ export class BanService {
           actorId,
           action: 'create_user_ban',
           targetSynapseUserId: synapseUserId,
-          metadata: payload,
+          metadata: (payload as unknown) as Record<string, unknown>,
         },
         client
       );
@@ -210,7 +210,7 @@ export class BanService {
       actorId,
       action: 'update_user_ban',
       targetSynapseUserId: synapseUserId,
-      metadata: request,
+      metadata: (request as unknown) as Record<string, unknown>,
     });
 
     await this.redisService.publish(config.redisUserEventsChannel, {
