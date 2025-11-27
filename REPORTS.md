@@ -135,4 +135,58 @@ Additional notes and recommendations:
 - If using external Postgres/Redis hardening, update `docker/postgres/postgresql.conf` and `docker/redis/redis.conf` accordingly.
 - For Windows hosts, prefer WSL2 for running the shell scripts to ensure LF line endings and POSIX tooling compatibility.
 
+## Code Audit (Holistic) and Recommendations
+
+Scope of audit
+- Backend API (`dashboard/backend/src`): controllers, services, middleware, validators
+- Synapse integration (`synapse/dashboard_integration/*` + hooks)
+- Database schema (`dashboard/schema/dashboard_schema.sql`)
+- Bot skeleton (`dashboard/bot/src`) and Docker orchestration (`docker/*`)
+
+Findings
+- Policy hooks: Present at login and event send paths with explicit 403 handling. No blocking for server-originated operations, which aligns with REQUEST.md intent.
+- Cache strategy: In-process TTL cache plus Redis pub/sub invalidation implemented; integration degrades gracefully if Redis is unavailable.
+- DB access: Parameterised queries, explicit transactions for multi-step writes, and strong typing via mapping functions.
+- Input validation: Joi schemas cover IDs, paging, enums. Minor improvement: enforce stricter patterns for Matrix IDs (`@user:domain`) and room IDs.
+- Audit logging: All mutating endpoints record `actorId`, `action`, and scoped metadata. Consider a retention policy or partitioning for large tables.
+- Media policy: SHA/Dedup and cooling periods implemented in schema and service. Lifecycle policies (eviction/archival) are queued via `media_sync_tasks`, leaving the actual worker to be implemented later (by design).
+- Message backlog: `pending_messages` queue supports replay/discard flows with row-level locking to avoid races.
+- Security: JWT + RBAC present for admin; bot auth via shared secret middleware. CORS allow-list enforced from env.
+
+Notable gaps / questions
+- Frontend tests: minimal to none. Add component and API integration tests (Jest/RTL) targeting critical pages (Users, Bans, Appeals, Media, Registration).
+- Bot features: Appeal conversation flows exist; ensure end-to-end E2EE handling (Matrix SDK) and resilience (reconnect, backoff). Validate message-format compatibility with Element clients.
+- Operational tasks: `media_sync_tasks` workers are not in this repo; either implement a worker (Node or Python) or document external executor.
+- Observability: Prometheus placeholders exist. Add `/metrics` to backend/bot or remove scrape configs until instrumentation lands.
+- Docs drift: `docs/DASHBOARD_INTEGRATION.md` updated; keep README.rst architecture notes in sync (frontend/bot no longer TBD).
+
+Suggested changes (short term)
+- Strengthen validators for Matrix IDs and room IDs (regex), and add pagination caps consistently across list endpoints.
+- Add rate limits for mutating endpoints beyond global limiter (per-route tighter limits for bans/media deletes).
+- Add `docs/sample_dashboard.env` (added in this change) to bootstrap deployments reliably.
+- Add smoke tests for API health and auth flows in CI.
+
+Suggested changes (medium term)
+- Implement media sync worker with resumable batches and backpressure.
+- Add friend-verification UX flows in the bot with clear messaging and revocation support.
+- Add GDPR/retention controls for operation logs and appeals (configurable TTL, archive job).
+- Provide a CLI in backend for maintenance operations (seed admin, rotate secrets, repair queues).
+
+Potential risks
+- Schema growth: operation logs and pending_messages can grow quickly. Ensure indexes are maintained and add periodic pruning.
+- Invalidation mismatches: If Redis is down, rely on TTL fallback. Consider a DB-level `updated_at` watermark check to force refresh on inconsistencies.
+
+Uncertainties / needs clarification
+- Registration workflow specifics: who provisions `registration_applications` (frontend-only or public API)? Confirm CAPTCHA provider (REQUEST.md hints but not hard requirement here).
+- Email/SMS providers: pluggable providers are implied. Document the required envs and expected response contracts.
+
+Work completed in this pass
+- Aligned docs for implemented integration and added `docs/sample_dashboard.env`.
+- Captured above audit plus immediate/medium-term recommendations.
+
+Overall assessment
+- The implementation meets the REQUEST.md design in spirit and function. Core policy checks, caching, and administrative flows are present and coherent. Remaining work is operational hardening, tests, and workers for media tasks.
+
+End of report.
+
 — End of report —

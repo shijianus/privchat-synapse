@@ -1,5 +1,14 @@
 # Matrix Dashboard 项目开发指导建议
 
+快速指引（TL;DR）
+- 启用集成：在 `homeserver.yaml` 增加 `dashboard.enabled: true`，并配置 `redis_channel_user_events` 与 `default_cache_ttl_seconds`。
+- 初始化数据库：在 Postgres 上执行 `dashboard/schema/dashboard_schema.sql`，并按需种子化 `dashboard.user_profiles`。
+- 启动服务：使用 `docker-compose.yml` 统一拉起 Synapse、Dashboard Backend/Frontend、Bot、Postgres、Redis、Nginx。
+- 管理端登录：先通过后端脚本/接口创建管理员，再使用 JWT 登录，访问 `/api/v1/*` 进行用户/封禁/申诉/媒体/注册管理。
+- 缓存失效：所有用户状态变更均发布 Redis 事件，Synapse 监听后立即清理本地缓存；Redis 不可用时退化为 TTL。
+- 推荐环境：Node 18+/20+、Python 3.10+、Postgres 12+、Redis 6+；生产强制启用 HTTPS 与 CORS 白名单。
+
+
 ## 📊 **当前项目状态总览 - 2025年11月27日**
 
 **整体完成度：97%** 🚀 **生产就绪状态 - 杰出成就** 🏆
