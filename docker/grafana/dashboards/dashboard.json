@@ -1,0 +1,27 @@
+{
+  "id": null,
+  "title": "Matrix Dashboard Overview",
+  "tags": ["matrix", "synapse", "dashboard"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "API Health",
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+      "targets": [
+        {"expr": "up{job=\"dashboard-backend\"}", "refId": "A"}
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Synapse Health",
+      "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+      "targets": [
+        {"expr": "up{job=\"synapse\"}", "refId": "A"}
+      ]
+    }
+  ]
+}
+

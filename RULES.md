@@ -7,7 +7,7 @@
 #### Encoding Format
 - All source code files must use UTF-8 encoding
 - Line endings must uniformly use LF (Unix style), not CRLF (Windows style)
-- Files must retain one empty line at the end
+- Files must retain one empty line at end
 - Indentation must uniformly use 2 spaces, not Tab characters
 
 #### Naming Conventions
@@ -24,7 +24,7 @@
 
 #### Comment Standards
 - All modifications to Synapse native code must add marker comments `# DASHBOARD INTEGRATION` or `// DASHBOARD INTEGRATION`
-- Complex business logic must include comments explaining the intent
+- Complex business logic must include comments explaining intent
 - Public APIs and functions must include complete documentation comments (JSDoc/Docstring)
 - Comments must use Chinese language uniformly, while code and identifiers use English
 
@@ -41,8 +41,8 @@
   "rules": {
     "no-console": "warn",
     "no-unused-vars": "off",
-    "@typescript-eslint/no-unused-vars": ["error", { 
-      "argsIgnorePattern": "^_" 
+    "@typescript-eslint/no-unused-vars": ["error", {
+      "argsIgnorePattern": "^_"
     }],
     "@typescript-eslint/explicit-function-return-type": "warn",
     "@typescript-eslint/no-explicit-any": "warn",
@@ -118,9 +118,9 @@ export class BanService {
         : null;
 
       const result = await client.query(
-        `INSERT INTO dashboard.user_bans 
+        `INSERT INTO dashboard.user_bans
          (user_id, ban_type, reason, violation_level, expires_at, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6)
+         VALUES ($1, $2, $3, $4, $5)
          RETURNING id`,
         [userId, banType, options.reason, options.violationLevel, expiresAt, options.adminId]
       );
@@ -142,7 +142,7 @@ export class BanService {
   private async invalidateCache(userId: number, banType: string): Promise<void> {
     await redis.del(`user:${userId}:routing`);
     await redis.publish(
-      'user.banned',
+      'user_banned',
       JSON.stringify({
         user_id: userId,
         ban_type: banType,
@@ -187,10 +187,10 @@ class DashboardIntegration:
     def get_user_routing_state(self, user_id: str) -> Optional[Dict[str, Any]]:
         """
         Get user routing state (from cache or database)
-        
+
         Args:
             user_id: Matrix user ID (format: @username:domain)
-            
+
         Returns:
             User routing state dictionary, returns None if user doesn't exist
         """
@@ -566,9 +566,6 @@ indent_size = 2
 [*.{py,pyi}]
 indent_size = 4
 
-[*.md]
-trim_trailing_whitespace = false
-
 [Makefile]
 indent_style = tab
 ```
@@ -753,18 +750,18 @@ describe('BanService', () => {
 ```typescript
 /**
  * Ban user
- * 
+ *
  * @param userId - User's database ID
  * @param banType - Ban type: silence (mute), soft_ban (soft ban), hard_ban (hard ban)
  * @param options - Ban options
  * @param options.reason - Ban reason, required
  * @param options.durationHours - Ban duration (hours), blank means permanent
  * @param options.violationLevel - Violation level: minor, normal, severe
- * @param options.adminId - Administrator ID executing the ban
+ * @param options.adminId - Administrator ID executing ban
  * @returns Promise<number> Ban record ID
- * 
+ *
  * @throws {Error} Throws when database operation fails
- * 
+ *
  * @example
  * ```typescript
  * const banId = await banService.banUser(123, 'hard_ban', {
@@ -1072,10 +1069,10 @@ ORDER BY idx_scan ASC;
 ```typescript
 // Correct Example
 const users = await pool.query(
-  `SELECT id, username, email, user_group 
-   FROM dashboard.user_profiles 
-   WHERE status = $1 
-   ORDER BY created_at DESC 
+  `SELECT id, username, email, user_group
+   FROM dashboard.user_profiles
+   WHERE status = $1
+   ORDER BY created_at DESC
    LIMIT $2 OFFSET $3`,
   ['active', pageSize, offset]
 );
@@ -1116,14 +1113,14 @@ class CacheService {
   async getUserRouting(userId: number): Promise<any> {
     const key = `user:${userId}:routing`;
     const cached = await redis.get(key);
-    
+
     if (cached) {
       return JSON.parse(cached);
     }
 
     const data = await this.loadFromDatabase(userId);
     await redis.setex(key, this.USER_ROUTING_TTL, JSON.stringify(data));
-    
+
     return data;
   }
 
@@ -1131,7 +1128,7 @@ class CacheService {
   async batchGetUserRouting(userIds: number[]): Promise<any[]> {
     const keys = userIds.map(id => `user:${id}:routing`);
     const results = await redis.mget(keys);
-    
+
     return results.map((r, i) => {
       if (r) return JSON.parse(r);
       return null;
@@ -1165,8 +1162,8 @@ async function getUsers(params: PaginationParams) {
   const offset = (page - 1) * pageSize;
 
   const result = await pool.query(
-    `SELECT id, username, email FROM users 
-     ORDER BY created_at DESC 
+    `SELECT id, username, email FROM users
+     ORDER BY created_at DESC
      LIMIT $1 OFFSET $2`,
     [pageSize, offset]
   );
@@ -1192,7 +1189,7 @@ import compression from 'compression';
 app.use(compression());
 ```
 
-#### Concurrency Control
+#### Rate Limiting
 - Use rate limiting to prevent API abuse
 - Set stricter limits for critical interfaces (login, registration)
 
@@ -1394,7 +1391,7 @@ export class ErrorBoundary extends Component<Props, State> {
 ```typescript
 // services/api.ts
 import axios from 'axios';
-import { toast } from 'sonner';
+import { toast } from 'react-hot-toast';
 
 const api = axios.create({
   baseURL: '/api/v1',
@@ -1434,7 +1431,6 @@ export default api;
 - **DEBUG**: Debug information, development environment only
 
 ### 10.2 Log Format
-
 ```typescript
 // utils/logger.ts
 import winston from 'winston';
@@ -1522,7 +1518,7 @@ logger.debug('JWT token', {
 
 ## 11. Deployment and CI/CD Standards
 
-### 11.1 Dockerization
+### 11.1 Containerization
 
 #### Dockerfile Example
 ```dockerfile
@@ -1542,7 +1538,7 @@ FROM node:20-alpine
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci --production
+RUN npm ci --only=production
 
 COPY --from=builder /app/dist ./dist
 
@@ -1615,7 +1611,7 @@ on:
 jobs:
   test-backend:
     runs-on: ubuntu-latest
-    
+
     services:
       postgres:
         image: postgres:15
@@ -1626,7 +1622,7 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-      
+
       redis:
         image: redis:7-alpine
         options: >-
@@ -1634,25 +1630,25 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-    
+
     steps:
       - uses: actions/checkout@v3
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
           node-version: '20'
           cache: 'npm'
           cache-dependency-path: dashboard/package-lock.json
-      
+
       - name: Install dependencies
         working-directory: ./dashboard
         run: npm ci
-      
+
       - name: Run linter
         working-directory: ./dashboard
         run: npm run lint
-      
+
       - name: Run tests
         working-directory: ./dashboard
         run: npm test -- --coverage
@@ -1660,31 +1656,31 @@ jobs:
           DB_HOST: localhost
           DB_PORT: 5432
           REDIS_HOST: localhost
-      
+
       - name: Upload coverage
         uses: codecov/codecov-action@v3
 
   test-frontend:
     runs-on: ubuntu-latest
-    
+
     steps:
       - uses: actions/checkout@v3
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
           node-version: '20'
           cache: 'npm'
           cache-dependency-path: dashboard/frontend/package-lock.json
-      
+
       - name: Install dependencies
         working-directory: ./dashboard/frontend
         run: npm ci
-      
+
       - name: Run linter
         working-directory: ./dashboard/frontend
         run: npm run lint
-      
+
       - name: Build
         working-directory: ./dashboard/frontend
         run: npm run build
@@ -1718,7 +1714,6 @@ jobs:
 ```
 
 ### 12.2 package.json Script Standards
-
 ```json
 {
   "scripts": {
@@ -1752,6 +1747,7 @@ jobs:
 ```typescript
 // Correct Example
 import path from 'path';
+
 const logPath = path.join(__dirname, '..', 'logs', 'app.log');
 
 // Incorrect Example - Windows and Linux path incompatibility
@@ -1811,20 +1807,19 @@ For any questions about code standards, please contact project maintainers or ra
 
 ---
 
-**Document Version**: 1.0.0  
-**Last Updated**: 2025-11-23  
+**Document Version**: 1.0.0
+**Last Updated**: 2025-11-26
 **Maintainer**: KevinEliasSparks
 **Administrators**: shijianus; KevinSmart520; dfcpvq
 **Studio**: DragonFloatingClub
-**Maintainer Email**: shijian.us@gmail.com
-**Studio Personal Email**: privchat@outlook.com
-**Studio Dedicated Email**: feedback@831511.xyz
+**Studio Personal Email**: shijian.us@gmail.com
+**Studio Dedicated Email**: privchat@outlook.com
 **Studio Website**: https://831511.xyz
 
-### 14.4 Technical Watermark
+### Technical Watermark
 
 Allowed to use maintainer, administrator, and studio names as core variable names. For differentiation, code can be written from different perspectives (using different styles).
 
 ### 15.1 Essential Reading
 
-If you have any uncertainties while reviewing the REQUEST.md document, prioritize asking the user for clarification on the actual steps to take. For specific requirements, refer to the REQUEST.md in detail. Please pay attention to configuration compatibility issues and make sure to read the ATTENTION.md file. Finally, to understand known or recommended configuration methods, review the ADVICE.md and GUIDE.md documents.
+If you have any uncertainties while reviewing REQUEST.md document, prioritize asking user for clarification on actual steps to take. For specific requirements, refer to REQUEST.md in detail. Please pay attention to configuration compatibility issues and make sure to read ATTENTION.md file. Finally, to understand known or recommended configuration methods, review ADVICE.md and GUIDE.md documents.

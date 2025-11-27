@@ -28,6 +28,29 @@ Repository: synapse (Matrix homeserver, extended with Dashboard integration)
     - `dashboard/backend/src/services/system-service.ts`
   - Adjusted `dashboard/backend/tsconfig.json` to exclude tests from build (`include` now only `src/**/*.ts`).
 
+## Additional Work (Follow-up Development on 2025-11-27)
+
+- Hardened backend CORS per RULES/REQUEST security guidance:
+  - `dashboard/backend/src/config/env.ts`: add `corsOrigins` (from `CORS_ORIGINS`) with explicit allow-list.
+  - `dashboard/backend/src/index.ts`: configure `cors({ origin, credentials })` using allow-list.
+- Completed production Docker config per REQUEST §XII:
+  - Align `docker-compose.production.yml` Synapse to build local `docker/Dockerfile` and mount `docker/conf/{homeserver.yaml,log.config}`; map SSL to `docker/nginx/ssl/`.
+  - Added config files referenced by compose:
+    - `docker/postgres/postgresql.conf` (minimal safe defaults)
+    - `docker/redis/redis.conf` (appendonly + memory policy)
+    - `docker/nginx/ssl/README.md` and `generate-self-signed.sh`
+    - `docker/prometheus/prometheus.yml` (basic scrape targets)
+    - `docker/grafana/datasources/datasource.yml` and `dashboards/dashboard.json`
+    - `docker/loki/loki-config.yaml`, `docker/promtail/promtail-config.yml`
+- Added required automation scripts per REQUEST §XII “Deployment Scripts”:
+  - `scripts/health-check.sh` — container HTTP health verification
+  - `scripts/backup.sh` — backups for PostgreSQL, Redis, media store
+  - `scripts/monitor.sh` — periodic `docker stats` and health snapshot
+  - `scripts/update.sh` — pull/build/up with health gate
+  - `scripts/rollback.sh` — rollback to a given git ref with rebuild
+
+These updates close the previously noted gaps under ADVICE.md (Docker orchestration completeness, production config, and ops scripts), and tighten API exposure via CORS.
+
 ## Audit & Validation
 
 ### Alignment with ADVICE.md
@@ -106,5 +129,10 @@ Runbook (succinct):
 - Execute `scripts/test-deployment.sh` for automated smoke tests.
 - Consider adding CI jobs for `docker compose build`, backend `npm run build`, and minimal Python lint checks.
 
-— End of report —
+Additional notes and recommendations:
+- Prometheus scrape paths for backend/bot are placeholders; expose `/metrics` only after instrumenting services or remove those jobs.
+- SSL certs must be provisioned under `docker/nginx/ssl/`; a self-signed generator is provided for testing only.
+- If using external Postgres/Redis hardening, update `docker/postgres/postgresql.conf` and `docker/redis/redis.conf` accordingly.
+- For Windows hosts, prefer WSL2 for running the shell scripts to ensure LF line endings and POSIX tooling compatibility.
 
+— End of report —

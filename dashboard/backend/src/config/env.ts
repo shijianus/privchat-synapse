@@ -10,6 +10,7 @@ export interface AppConfig {
   readonly port: number;
   readonly host: string;
   readonly logLevel: string;
+  readonly corsOrigins: readonly string[];
   readonly jwtSecret: string;
   readonly jwtRefreshSecret: string;
   readonly botApiSecret: string;
@@ -49,6 +50,11 @@ export const config: AppConfig = {
   port: toNumber(process.env.PORT, 3100),
   host: process.env.DASHBOARD_HOST || DEFAULT_LOOPBACK_HOST,
   logLevel: process.env.LOG_LEVEL || 'info',
+  // 允许的 CORS 来源列表，多个以逗号分隔
+  corsOrigins: (process.env.CORS_ORIGINS || 'http://localhost:3000,http://localhost:3001')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean),
   jwtSecret: process.env.JWT_SECRET || 'change-me',
   jwtRefreshSecret: process.env.JWT_REFRESH_SECRET || 'change-me-too',
   botApiSecret: process.env.BOT_API_SECRET || 'matrix-bot-secret',

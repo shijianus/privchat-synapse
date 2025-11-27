@@ -86,7 +86,18 @@ const startServer = async (): Promise<void> => {
   });
 
   app.use(helmet());
-  app.use(cors());
+  // 按环境变量限制跨域来源，提升安全性
+  app.use(
+    cors({
+      origin: (origin, callback) => {
+        // 允许同源和预检请求
+        if (!origin) return callback(null, true);
+        if (config.corsOrigins.includes(origin)) return callback(null, true);
+        return callback(new Error('CORS not allowed for origin'));
+      },
+      credentials: true,
+    })
+  );
   app.use(compression());
   app.use(express.json({ limit: '1mb' }));
   app.use(morgan('combined', { stream: httpLogStream }));

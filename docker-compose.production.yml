@@ -89,7 +89,9 @@ services:
 
   # Synapse Matrix Homeserver
   synapse:
-    image: matrixdotorg/synapse:v1.112.0
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
     container_name: matrix-synapse
     restart: unless-stopped
     environment:
@@ -100,8 +102,8 @@ services:
     volumes:
       - synapse_data:/data
       - synapse_logs:/logs
-      - ./docker/synapse/homeserver.yaml:/data/homeserver.yaml
-      - ./docker/synapse/log.config:/data/log.config
+      - ./docker/conf/homeserver.yaml:/data/homeserver.yaml
+      - ./docker/conf/log.config:/data/log.config
       - media_store:/data/media_store
     networks:
       - matrix-network
@@ -278,7 +280,7 @@ services:
       - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf
       - ./docker/nginx/matrix.conf:/etc/nginx/conf.d/matrix.conf
       - ./docker/nginx/dashboard.conf:/etc/nginx/conf.d/dashboard.conf
-      - ./docker/ssl:/etc/nginx/ssl
+      - ./docker/nginx/ssl:/etc/nginx/ssl
       - media_store:/var/www/media:ro
     networks:
       - matrix-network
