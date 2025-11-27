@@ -20,3 +20,14 @@
 - `npx tsc --noEmit` (dashboard/frontend) ✅ — validates the new store, router, and forms compile under the existing strict TS config.
 - `npm run lint` ⚠️ — ESLint 9 currently fails on this machine because the bundled Hermes parser WebAssembly module refuses to initialize (error thrown from `hermes-parser/dist/HermesParserWASM.js` before lint rules execute). No new lint violations were reported; rerun once the environment supports that parser.
 - Next: hook the placeholder pages to live API data, finish appeal/bot UIs, and extend docker-compose so the frontend module can be tested alongside the completed backend services.
+
+# Backend Compatibility Audit & Host Binding (REQUEST.md §I/§II)
+
+## API Host Binding & Local-Network Isolation
+- Added a `host` property to the dashboard API runtime configuration (default `127.0.0.1`) so deployments remain confined to the loopback interface unless explicitly overridden for Docker networking (dashboard/backend/src/config/env.ts).
+- Updated the Express bootstrap to bind to that host and log the exact endpoint, satisfying REQUEST.md’s rule that all services stay on the internal network (dashboard/backend/src/index.ts).
+
+## Cross-Platform Compatibility Script
+- Hardened `test_compatibility.py` with ASCII-safe logging and robust import parsing so Windows consoles can execute the Ubuntu-readiness audit without GBK codec crashes.
+- The compatibility audit now validates schema definitions, module presence, documentation, and environment-variable patterns before deploying to Ubuntu.
+- Ran `python test_compatibility.py` — all 7 checks pass, and the generated recommendations cover the ADVICE.md system-testing expectations.

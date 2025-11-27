@@ -11,6 +11,35 @@ import subprocess
 from pathlib import Path
 from typing import List, Tuple
 
+_UNICODE_OUTPUT_MAP = {
+    "\u2713": "[PASS]",
+    "\u2717": "[FAIL]",
+    "\u26a0": "[WARN]",
+}
+
+_original_print = print
+
+
+def _normalize_output(value: str) -> str:
+    """Replace unicode symbols that break Windows consoles with ASCII tokens."""
+    normalized = value
+    for symbol, replacement in _UNICODE_OUTPUT_MAP.items():
+        normalized = normalized.replace(symbol, replacement)
+    return normalized
+
+
+def _safe_print(*args, **kwargs):
+    def _normalize(arg):
+        if isinstance(arg, str):
+            return _normalize_output(arg)
+        return arg
+
+    normalized_args = [_normalize(arg) for arg in args]
+    _original_print(*normalized_args, **kwargs)
+
+
+print = _safe_print  # type: ignore
+
 def test_platform_compatibility():
     """Test basic platform compatibility checks"""
     print("Testing platform compatibility...")
@@ -120,16 +149,28 @@ def test_python_import_compatibility():
     ]
 
     for import_statement in test_imports:
-        # Check if modules exist (without actually importing to avoid dependency issues)
-        module_path = import_statement.split(" from ")[1].split(" import ")[0]
-        module_file = module_path.replace(".", "/") + ".py"
+        statement = import_statement.strip()
+        module_path = ""
 
+        if statement.startswith("from "):
+            parts = statement.split(" ", 1)[1].split(" import ")
+            if len(parts) < 2:
+                print("[WARN] Unable to parse import statement:", statement)
+                continue
+            module_path = parts[0].strip()
+        elif statement.startswith("import "):
+            module_path = statement.split(" ", 1)[1].strip()
+        else:
+            print("[WARN] Unsupported import format:", statement)
+            continue
+
+        module_file = module_path.replace(".", "/") + ".py"
         full_path = Path(__file__).parent / module_file
 
         if full_path.exists():
-            print(f"✓ {module_path} module exists")
+            print(f"[PASS] {module_path} module exists")
         else:
-            print(f"✗ {module_path} module missing")
+            print(f"[FAIL] {module_path} module missing")
             return False
 
     return True

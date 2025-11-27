@@ -8,6 +8,7 @@ dotenv.config();
 export interface AppConfig {
   readonly env: string;
   readonly port: number;
+  readonly host: string;
   readonly logLevel: string;
   readonly jwtSecret: string;
   readonly jwtRefreshSecret: string;
@@ -41,10 +42,12 @@ const toNumber = (value: string | undefined, fallback: number): number => {
 };
 
 const env = (process.env.NODE_ENV || 'development').toLowerCase();
+const DEFAULT_LOOPBACK_HOST = '127.0.0.1';
 
 export const config: AppConfig = {
   env,
   port: toNumber(process.env.PORT, 3100),
+  host: process.env.DASHBOARD_HOST || DEFAULT_LOOPBACK_HOST,
   logLevel: process.env.LOG_LEVEL || 'info',
   jwtSecret: process.env.JWT_SECRET || 'change-me',
   jwtRefreshSecret: process.env.JWT_REFRESH_SECRET || 'change-me-too',

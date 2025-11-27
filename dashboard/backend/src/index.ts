@@ -112,8 +112,9 @@ const startServer = async (): Promise<void> => {
 
   app.use(errorHandler);
 
-  app.listen(config.port, () => {
-    logger.info('Dashboard API 在端口 %d 启动，环境: %s', config.port, config.env);
+  const listenHost = config.host || '127.0.0.1';
+  app.listen(config.port, listenHost, () => {
+    logger.info('Dashboard API listening on %s:%d (%s)', listenHost, config.port, config.env);
   });
 };
 
