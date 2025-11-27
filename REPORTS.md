@@ -1,3 +1,22 @@
+# User Directory API Integration & Risk Monitoring (REQUEST.md §III · ADVICE Priority 1)
+
+## Backend-Aligned Types & API Client
+- Reconciled the frontend `UserProfile` contract with the actual `dashboard.user_profiles` schema so Synapse IDs, group tiers, registration states, and risk levels are represented exactly as the Node backend emits them (dashboard/frontend/src/types/dashboard.ts).
+- Simplified `ApiService.getUsers` to speak the backend filter dialect (`userGroup`, `registrationStatus`, `riskLevel`, `keyword`) and emit plain arrays, matching the Express controller output without stubbed pagination (dashboard/frontend/src/services/api.ts).
+
+## UsersPage Workflow & Filters
+- Replaced the placeholder grid with a React Query-powered directory that hydrates directly from `/api/v1/users`, persists filters in component state, and exposes quick actions to refresh cache-invalidation events (dashboard/frontend/src/pages/UsersPage.tsx).
+- Added translated selectors for the four policy-driven groups, registration decisions, and the four-level risk ladder so operators can enforce REQUEST.md’s lifecycle rules from the UI without touching the DB manually.
+- Displayed live metrics for pending approvals, suspended accounts, and high-risk ratios derived per query so moderators can audit risk posture before issuing bans.
+
+## Risk Telemetry & UX Polish
+- Surfaced a per-level risk snapshot and highlighted row badges for group/status/risk combinations, mirroring the Redis-driven invalidation flows documented in ADVICE.md.
+- Centralized Tailwind badge styles and date formatting helpers to keep the layout consistent with RULES.md formatting requirements.
+
+## Testing & Validation
+- `npx tsc -b` (dashboard/frontend) ✅ — strict compilation (with `verbatimModuleSyntax`, `noUnusedLocals`, etc.) now succeeds after the type-only import fixes and React Query refactor.
+- `npm run build` ⚠️ — Vite’s Rollup binary (`@rollup/rollup-win32-x64-msvc`) fails to load on this Windows host (`ERR_DLOPEN_FAILED`). Reinstalling that optional dependency per the error hint should unblock a full bundle build on a clean machine.
+
 # Dashboard Frontend Progress – Authentication & Routing
 
 ## Authentication Foundation
