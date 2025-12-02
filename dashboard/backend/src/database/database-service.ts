@@ -83,6 +83,31 @@ export class DatabaseService {
     return result.rows;
   }
 
+  /**
+   * 返回连接池当前状态，用于公开监控页面展示
+   */
+  getPoolStats(): {
+    readonly total: number;
+    readonly idle: number;
+    readonly waiting: number;
+    readonly active: number;
+    readonly max: number;
+  } {
+    const pool = this.ensurePool();
+    const total = pool.totalCount;
+    const idle = pool.idleCount;
+    const waiting = pool.waitingCount;
+    const active = Math.max(total - idle, 0);
+
+    return {
+      total,
+      idle,
+      waiting,
+      active,
+      max: pool.options.max ?? config.database.maxConnections,
+    };
+  }
+
   private ensurePool(): Pool {
     if (!this.pool) {
       throw new Error('DatabaseService 尚未初始化');

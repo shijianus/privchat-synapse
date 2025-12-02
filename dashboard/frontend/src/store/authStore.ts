@@ -184,7 +184,11 @@ const hasPermission = (permissions: User['permissions'], resource: string, actio
 };
 
 export const hasRole = (user: User | null, role: string): boolean => {
-  return user?.role.name === role;
+  const roleValue = (user as unknown as { role?: unknown })?.role;
+  if (!roleValue) return false;
+
+  const roleName = typeof roleValue === 'string' ? roleValue : (roleValue as User['role'])?.name;
+  return roleName === role;
 };
 
 export const canAccess = (

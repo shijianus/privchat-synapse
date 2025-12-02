@@ -31,6 +31,12 @@ export interface AppConfig {
     readonly port: number;
     readonly password?: string;
   };
+  readonly synapse: {
+    readonly adminBaseUrl: string;
+    readonly adminAccessToken: string;
+    readonly serverName: string;
+    readonly defaultRooms: readonly string[];
+  };
 }
 
 const toNumber = (value: string | undefined, fallback: number): number => {
@@ -43,7 +49,7 @@ const toNumber = (value: string | undefined, fallback: number): number => {
 };
 
 const env = (process.env.NODE_ENV || 'development').toLowerCase();
-const DEFAULT_BIND_HOST = '0.0.0.0';
+const DEFAULT_BIND_HOST = '127.0.0.1';
 
 type ParsedDbUrl = {
   host: string;
@@ -107,6 +113,11 @@ const parseRedisUrl = (value?: string): ParsedRedisUrl | undefined => {
 
 const dbFromUrl = parseDatabaseUrl(process.env.DATABASE_URL);
 const redisFromUrl = parseRedisUrl(process.env.REDIS_URL);
+const parseList = (value?: string): string[] =>
+  (value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
 
 export const config: AppConfig = {
   env,
@@ -140,5 +151,13 @@ export const config: AppConfig = {
     host: redisFromUrl?.host || process.env.REDIS_HOST || '127.0.0.1',
     port: redisFromUrl?.port || toNumber(process.env.REDIS_PORT, 6379),
     password: redisFromUrl?.password || process.env.REDIS_PASSWORD,
+  },
+  synapse: {
+    adminBaseUrl:
+      process.env.SYNAPSE_ADMIN_BASE_URL ||
+      'http://127.0.0.1:8008/_synapse/admin/v2',
+    adminAccessToken: process.env.SYNAPSE_ADMIN_ACCESS_TOKEN || '',
+    serverName: process.env.SYNAPSE_SERVER_NAME || 'localhost',
+    defaultRooms: parseList(process.env.SYNAPSE_DEFAULT_ROOMS),
   },
 };

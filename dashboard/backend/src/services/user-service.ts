@@ -1,11 +1,21 @@
+import crypto from 'crypto';
 import { PoolClient } from 'pg';
 
 import { config } from '../config/env';
 import { DatabaseService } from '../database/database-service';
 import { RedisService } from '../redis/redis-service';
 import { createBadRequestError, createNotFoundError } from '../utils/http-error';
-import { UserProfile, UserProfileFilter, UserProfileUpdateRequest } from '../types/user';
+import {
+  CreateUserPayload,
+  ProvisionedUser,
+  UserProfile,
+  UserProfileFilter,
+  UserProfileUpdateRequest,
+  UserProfileUpsertRequest,
+} from '../types/user';
+import { RegistrationBlacklistType } from '../types/registration';
 import { OperationLogService } from './operation-log-service';
+import { SynapseAdminService } from './synapse-admin-service';
 
 interface UserProfileRow {
   readonly id: number;
@@ -39,7 +49,8 @@ export class UserService {
   constructor(
     private readonly databaseService: DatabaseService,
     private readonly redisService: RedisService,
-    private readonly operationLogService: OperationLogService
+    private readonly operationLogService: OperationLogService,
+    private readonly synapseAdminService: SynapseAdminService
   ) {}
 
   async listUsers(filters: UserProfileFilter): Promise<UserProfile[]> {
@@ -86,6 +97,82 @@ export class UserService {
 
     const rows = await this.databaseService.query<UserProfileRow>(sql, params);
     return rows.map(mapUserProfile);
+  }
+
+  async provisionSynapseUser(
+    payload: CreateUserPayload,
+    actorId: string
+  ): Promise<ProvisionedUser> {
+    const username = payload.username.trim();
+    if (!username) {
+      throw createBadRequestError('用户名不能为空');
+    }
+
+    const normalizedEmail = payload.email?.trim();
+    const normalizedMsisdn = payload.msisdn?.trim();
+    const normalizedUserId = this.buildMatrixUserId(username);
+
+    await this.rejectIfBlacklisted({
+      username,
+      email: normalizedEmail,
+      msisdn: normalizedMsisdn,
+    });
+
+    if (await this.userExists(normalizedUserId)) {
+      throw createBadRequestError('该 Matrix ID 已存在，请更换用户名');
+    }
+
+    const trimmedPassword = (payload.password ?? '').trim();
+    const shouldGeneratePassword = payload.generatePassword !== false;
+    if (!shouldGeneratePassword && !trimmedPassword) {
+      throw createBadRequestError('未提供初始密码');
+    }
+
+    const password = shouldGeneratePassword ? this.generateStrongPassword() : trimmedPassword;
+    this.ensurePasswordStrength(password);
+
+    const provisionResult = await this.synapseAdminService.createUser({
+      username,
+      password,
+      displayName: payload.displayName?.trim() || undefined,
+    });
+
+    const synapseUserId = provisionResult.userId || normalizedUserId;
+    const profile = await this.upsertProfile(
+      synapseUserId,
+      {
+        userGroup: payload.userGroup ?? 'standard',
+        registrationStatus: payload.registrationStatus ?? 'active',
+        riskLevel: payload.riskLevel ?? 'low',
+        source: 'dashboard_provision',
+      },
+      actorId
+    );
+
+    await this.operationLogService.record({
+      actorId,
+      action: 'create_synapse_user',
+      targetSynapseUserId: synapseUserId,
+      metadata: {
+        userGroup: profile.userGroup,
+        registrationStatus: profile.registrationStatus,
+        riskLevel: profile.riskLevel,
+        joinDefaultRoomsRequested: Boolean(payload.joinDefaultRooms),
+        sendWelcomeMessageRequested: Boolean(payload.sendWelcomeMessage),
+        forcePasswordReset: Boolean(payload.forcePasswordReset),
+        generatedPassword: shouldGeneratePassword,
+        synapseRequestId: provisionResult.requestId,
+      },
+    });
+
+    return {
+      synapseUserId,
+      userGroup: profile.userGroup,
+      registrationStatus: profile.registrationStatus,
+      riskLevel: profile.riskLevel,
+      initialPassword: password,
+      createdAt: profile.createdAt,
+    };
   }
 
   async getBySynapseId(synapseUserId: string): Promise<UserProfile> {
@@ -214,5 +301,172 @@ export class UserService {
 
   private getCacheKey(synapseUserId: string): string {
     return `dashboard:user_profile:${synapseUserId}`;
+  }
+
+  private async upsertProfile(
+    synapseUserId: string,
+    payload: UserProfileUpsertRequest,
+    actorId?: string
+  ): Promise<UserProfile> {
+    const rows = await this.databaseService.query<UserProfileRow>(
+      `
+        INSERT INTO dashboard.user_profiles
+        (synapse_user_id, user_group, registration_status, risk_level, last_login_at)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (synapse_user_id) DO UPDATE
+        SET user_group = EXCLUDED.user_group,
+            registration_status = EXCLUDED.registration_status,
+            risk_level = EXCLUDED.risk_level,
+            last_login_at = COALESCE(EXCLUDED.last_login_at, dashboard.user_profiles.last_login_at),
+            updated_at = NOW()
+        RETURNING
+          id,
+          synapse_user_id AS "synapseUserId",
+          user_group AS "userGroup",
+          registration_status AS "registrationStatus",
+          risk_level AS "riskLevel",
+          last_login_at AS "lastLoginAt",
+          created_at AS "createdAt",
+          updated_at AS "updatedAt"
+      `,
+      [
+        synapseUserId,
+        payload.userGroup ?? 'standard',
+        payload.registrationStatus ?? 'active',
+        payload.riskLevel ?? 'low',
+        payload.lastLoginAt ? new Date(payload.lastLoginAt) : null,
+      ]
+    );
+
+    const profile = mapUserProfile(rows[0]);
+
+    if (actorId) {
+      await this.operationLogService.record({
+        actorId,
+        action: 'user_profile_upsert',
+        targetSynapseUserId: synapseUserId,
+        metadata: {
+          userGroup: profile.userGroup,
+          registrationStatus: profile.registrationStatus,
+          riskLevel: profile.riskLevel,
+          source: payload.source,
+        },
+      });
+    }
+
+    await this.cacheProfile(profile);
+    await this.publishUserProfileUpdate(profile.synapseUserId);
+
+    return profile;
+  }
+
+  private async cacheProfile(profile: UserProfile): Promise<void> {
+    await this.redisService.cacheJson(
+      this.getCacheKey(profile.synapseUserId),
+      profile,
+      config.cacheTtlSeconds
+    );
+  }
+
+  private async publishUserProfileUpdate(synapseUserId: string): Promise<void> {
+    await this.redisService.publish(config.redisUserEventsChannel, {
+      action: 'user_profile_updated',
+      user_ids: [synapseUserId],
+    });
+  }
+
+  private async rejectIfBlacklisted(values: {
+    username?: string;
+    email?: string | null;
+    msisdn?: string | null;
+  }): Promise<void> {
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+
+    const addCondition = (type: RegistrationBlacklistType, value?: string | null): void => {
+      if (!value) return;
+      params.push(value);
+      conditions.push(`(type = '${type}' AND value = $${params.length})`);
+    };
+
+    addCondition('username', values.username);
+    addCondition('email', values.email);
+    addCondition('msisdn', values.msisdn);
+
+    if (!conditions.length) {
+      return;
+    }
+
+    const rows = await this.databaseService.query<{
+      type: RegistrationBlacklistType;
+      value: string;
+      expiresAt: Date | null;
+    }>(
+      `
+        SELECT type, value, expires_at AS "expiresAt"
+        FROM dashboard.registration_blacklist
+        WHERE ${conditions.join(' OR ')}
+      `,
+      params
+    );
+
+    const now = Date.now();
+    const activeHits = rows.filter((row) => !row.expiresAt || row.expiresAt.getTime() > now);
+    if (activeHits.length) {
+      const detail = activeHits.map((row) => `${row.type}:${row.value}`).join(', ');
+      throw createBadRequestError(`命中注册黑名单: ${detail}`);
+    }
+  }
+
+  private async userExists(synapseUserId: string): Promise<boolean> {
+    const rows = await this.databaseService.query<{ exists: boolean }>(
+      `
+        SELECT EXISTS (
+          SELECT 1 FROM dashboard.user_profiles WHERE synapse_user_id = $1
+        ) AS "exists"
+      `,
+      [synapseUserId]
+    );
+
+    return Boolean(rows[0]?.exists);
+  }
+
+  private generateStrongPassword(length = 16): string {
+    const charset = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%^&*()-_=+';
+    const complexity = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&()_\-+=])/;
+
+    // 确保包含大小写、数字和特殊字符
+    let password = '';
+    do {
+      const bytes = crypto.randomBytes(length);
+      let candidate = '';
+      for (let i = 0; i < length; i += 1) {
+        candidate += charset[bytes[i] % charset.length];
+      }
+      password = candidate;
+    } while (!complexity.test(password));
+
+    return password;
+  }
+
+  private ensurePasswordStrength(password: string): void {
+    if (password.length < 12) {
+      throw createBadRequestError('初始密码至少 12 位，需包含大小写、数字和符号');
+    }
+
+    const complexity = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&()_\-+=])/;
+    if (!complexity.test(password)) {
+      throw createBadRequestError('初始密码需包含大小写、数字和特殊字符');
+    }
+  }
+
+  private buildMatrixUserId(username: string): string {
+    if (username.startsWith('@') && username.includes(':')) {
+      if (!username.endsWith(`:${config.synapse.serverName}`)) {
+        throw createBadRequestError(`仅允许创建 ${config.synapse.serverName} 域的账户`);
+      }
+      return username;
+    }
+    return `@${username}:${config.synapse.serverName}`;
   }
 }

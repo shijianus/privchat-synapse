@@ -23,6 +23,7 @@ import { createApiRouter } from './routes';
 import { createAuthRoutes } from './routes/auth-routes';
 import { createBotRoutes } from './routes/bot-routes';
 import { createHealthRoutes } from './routes/health-routes';
+import { createMonitorRoutes } from './routes/monitor-routes';
 import { createTwoFactorRoutes } from './routes/two-factor-routes';
 import { AppealService } from './services/appeal-service';
 import { AuthService } from './services/auth-service';
@@ -31,8 +32,10 @@ import { MediaService } from './services/media-service';
 import { MessageSyncService } from './services/message-sync-service';
 import { OperationLogService } from './services/operation-log-service';
 import { RegistrationService } from './services/registration-service';
+import { SynapseAdminService } from './services/synapse-admin-service';
 import { SystemService } from './services/system-service';
 import { TwoFactorService } from './services/two-factor-service';
+import { MonitoringService } from './services/monitoring-service';
 import { UserService } from './services/user-service';
 import { httpLogStream, logger } from './utils/logger';
 import { assertPortAvailable } from './utils/port-check';
@@ -51,7 +54,13 @@ const startServer = async (): Promise<void> => {
   await redisService.init();
 
   const operationLogService = new OperationLogService(databaseService);
-  const userService = new UserService(databaseService, redisService, operationLogService);
+  const synapseAdminService = new SynapseAdminService();
+  const userService = new UserService(
+    databaseService,
+    redisService,
+    operationLogService,
+    synapseAdminService
+  );
   const appealService = new AppealService(databaseService, userService, operationLogService);
   const banService = new BanService(
     databaseService,
@@ -70,6 +79,7 @@ const startServer = async (): Promise<void> => {
   const messageSyncService = new MessageSyncService(databaseService, operationLogService);
   const registrationService = new RegistrationService(databaseService, operationLogService);
   const systemService = new SystemService(databaseService, redisService, operationLogService);
+  const monitoringService = new MonitoringService(databaseService, redisService, systemService);
 
   const userController = new UserController(userService, banService);
   const banController = new BanController(banService);
@@ -107,7 +117,8 @@ const startServer = async (): Promise<void> => {
   app.use(morgan('combined', { stream: httpLogStream }));
   app.use(limiter);
 
-  app.use('/health', createHealthRoutes());
+  app.use('/monitor', createMonitorRoutes(monitoringService));
+  app.use('/health', createHealthRoutes(monitoringService));
   app.use('/api/v1/2fa', createTwoFactorRoutes(twoFactorController));
   app.use('/api/v1/auth', createAuthRoutes(authController));
   app.use('/api/v1/bot', createBotRoutes({ appealController, twoFactorController }));

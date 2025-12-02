@@ -134,6 +134,14 @@ export class RedisService {
     return client.ping();
   }
 
+  /**
+   * 获取 Redis INFO 字符串，便于监控页面解析内存、键数量等指标
+   */
+  async info(): Promise<string> {
+    const client = this.ensurePublisher();
+    return client.info();
+  }
+
   private ensurePublisher(): Redis {
     if (!this.publisher) {
       throw new Error('Redis publisher connection has not been initialised');

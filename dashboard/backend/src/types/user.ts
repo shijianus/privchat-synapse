@@ -31,3 +31,35 @@ export interface UserProfileFilter {
   readonly riskLevel?: string;
   readonly keyword?: string;
 }
+
+export interface UserProfileUpsertRequest {
+  readonly userGroup?: string;
+  readonly registrationStatus?: string;
+  readonly riskLevel?: string;
+  readonly lastLoginAt?: string | null;
+  readonly source?: string;
+}
+
+export interface CreateUserPayload {
+  readonly username: string;
+  readonly displayName?: string;
+  readonly password?: string;
+  readonly generatePassword?: boolean;
+  readonly userGroup?: string;
+  readonly registrationStatus?: string;
+  readonly riskLevel?: string;
+  readonly forcePasswordReset?: boolean;
+  readonly email?: string;
+  readonly msisdn?: string;
+  readonly joinDefaultRooms?: boolean;
+  readonly sendWelcomeMessage?: boolean;
+}
+
+export interface ProvisionedUser {
+  readonly synapseUserId: string;
+  readonly userGroup: string;
+  readonly registrationStatus: string;
+  readonly riskLevel: string;
+  readonly initialPassword?: string;
+  readonly createdAt: string;
+}

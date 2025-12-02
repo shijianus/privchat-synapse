@@ -1,0 +1,553 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Matrix Dashboard Monitor</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #111827;
+      --muted: #9ca3af;
+      --text: #e5e7eb;
+      --accent: #22d3ee;
+      --warning: #fbbf24;
+      --danger: #f87171;
+      --success: #34d399;
+      --border: #1f2937;
+      --gradient: linear-gradient(135deg, #0ea5e9, #6366f1);
+      font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: radial-gradient(circle at 20% 20%, rgba(34,211,238,0.12), transparent 35%),
+                  radial-gradient(circle at 80% 0%, rgba(99,102,241,0.12), transparent 32%),
+                  var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 24px;
+    }
+
+    .page {
+      max-width: 1200px;
+      margin: 0 auto 48px auto;
+    }
+
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+    }
+
+    .title {
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: 0.4px;
+      background: var(--gradient);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin: 0;
+    }
+
+    .subtle {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-size: 13px;
+    }
+
+    .grid {
+      display: grid;
+      gap: 16px;
+    }
+
+    .grid-2 { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+    .grid-3 { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+
+    .card {
+      background: linear-gradient(145deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 16px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+    }
+
+    .card h3 {
+      margin: 0 0 6px 0;
+      font-size: 15px;
+      letter-spacing: 0.2px;
+      color: #f3f4f6;
+    }
+
+    .metric {
+      font-size: 26px;
+      font-weight: 700;
+      margin: 8px 0;
+    }
+
+    .progress {
+      position: relative;
+      height: 8px;
+      background: #0b1222;
+      border-radius: 999px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+
+    .progress span {
+      position: absolute;
+      inset: 0;
+      display: block;
+      background: var(--gradient);
+      transform-origin: left center;
+    }
+
+    .status-line {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .status-line:last-child { border-bottom: none; }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--muted);
+      box-shadow: 0 0 0 4px rgba(255,255,255,0.02);
+    }
+
+    .status-dot.up { background: var(--success); box-shadow: 0 0 0 4px rgba(52,211,153,0.12); }
+    .status-dot.degraded { background: var(--warning); box-shadow: 0 0 0 4px rgba(251,191,36,0.12); }
+    .status-dot.down { background: var(--danger); box-shadow: 0 0 0 4px rgba(248,113,113,0.12); }
+
+    .log-list {
+      display: grid;
+      gap: 10px;
+      max-height: 260px;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+
+    .log-item {
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.02);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 10px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border);
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 8px;
+    }
+
+    .flex {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .warning {
+      color: var(--warning);
+    }
+
+    .error {
+      color: var(--danger);
+    }
+
+    .small {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    @media (max-width: 640px) {
+      body { padding: 16px; }
+      .title { font-size: 20px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header>
+      <div>
+        <p class="title">Matrix Dashboard 内网监控</p>
+        <p class="subtle">只读展示 · 每 5 秒自动刷新</p>
+      </div>
+      <div class="flex">
+        <span class="pill" id="overall-pill">状态同步中...</span>
+        <span class="pill">最后更新时间：<span id="last-updated">--</span></span>
+      </div>
+    </header>
+
+    <section class="grid grid-3" id="resources">
+      <div class="card">
+        <h3>CPU 使用率</h3>
+        <div class="metric" id="cpu-usage">--%</div>
+        <div class="progress"><span id="cpu-bar" style="transform: scaleX(0)"></span></div>
+        <p class="small">阈值提醒：80% 将标记为预警</p>
+      </div>
+      <div class="card">
+        <h3>内存使用</h3>
+        <div class="metric" id="mem-usage">-- / --</div>
+        <div class="progress"><span id="mem-bar" style="transform: scaleX(0)"></span></div>
+        <p class="small">阈值提醒：90% 将标记为预警</p>
+      </div>
+      <div class="card">
+        <h3>磁盘占用</h3>
+        <div class="metric" id="disk-usage">-- / --</div>
+        <div class="progress"><span id="disk-bar" style="transform: scaleX(0)"></span></div>
+        <p class="small">挂载点：<span id="disk-mount">/</span></p>
+      </div>
+      <div class="card">
+        <h3>网络流量 (MB/s)</h3>
+        <div class="metric" id="net-usage">↑ -- · ↓ --</div>
+        <p class="small" id="net-sample">等待采样...</p>
+      </div>
+      <div class="card">
+        <h3>GPU 使用率</h3>
+        <div class="metric" id="gpu-usage">N/A</div>
+        <p class="small" id="gpu-note">若存在 GPU 将自动采集</p>
+      </div>
+      <div class="card" id="warnings-card" style="display:none;">
+        <h3>预警</h3>
+        <div class="log-list" id="warning-list"></div>
+      </div>
+    </section>
+
+    <section class="grid grid-2">
+      <div class="card">
+        <h3>核心服务状态</h3>
+        <div id="service-list"></div>
+      </div>
+      <div class="card">
+        <h3>数据库与缓存</h3>
+        <div class="status-line">
+          <div>
+            <div class="subtle">PostgreSQL 连接池</div>
+            <div id="pg-pool">--</div>
+          </div>
+          <span class="status-dot up" id="pg-dot"></span>
+        </div>
+        <div class="status-line">
+          <div>
+            <div class="subtle">Redis 缓存</div>
+            <div id="redis-stats">--</div>
+          </div>
+          <span class="status-dot up" id="redis-dot"></span>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid grid-3">
+      <div class="card">
+        <h3>快速统计</h3>
+        <div class="status-line"><span class="subtle">用户总数</span><strong id="stat-users">--</strong></div>
+        <div class="status-line"><span class="subtle">活跃封禁</span><strong id="stat-bans">--</strong></div>
+        <div class="status-line"><span class="subtle">待处理申诉</span><strong id="stat-appeals">--</strong></div>
+        <div class="status-line"><span class="subtle">待审核注册</span><strong id="stat-registrations">--</strong></div>
+        <div class="status-line"><span class="subtle">在线用户</span><strong id="stat-online">--</strong></div>
+        <div class="status-line"><span class="subtle">今日消息</span><strong id="stat-messages">--</strong></div>
+        <div class="status-line"><span class="subtle">活跃房间</span><strong id="stat-rooms">--</strong></div>
+      </div>
+      <div class="card">
+        <h3>系统信息</h3>
+        <div class="status-line"><span class="subtle">操作系统</span><strong id="sys-os">--</strong></div>
+        <div class="status-line"><span class="subtle">运行时间</span><strong id="sys-uptime">--</strong></div>
+        <div class="status-line"><span class="subtle">Dashboard 版本</span><strong id="sys-dashboard">--</strong></div>
+        <div class="status-line"><span class="subtle">Synapse 版本</span><strong id="sys-synapse">--</strong></div>
+        <div class="status-line"><span class="subtle">Node 版本</span><strong id="sys-node">--</strong></div>
+        <div class="status-line"><span class="subtle">绑定地址</span><strong id="sys-host">--</strong></div>
+      </div>
+      <div class="card">
+        <h3>最近错误日志</h3>
+        <div class="log-list" id="logs"></div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const REFRESH_MS = 5000;
+    const els = {
+      lastUpdated: document.getElementById('last-updated'),
+      overall: document.getElementById('overall-pill'),
+      cpu: document.getElementById('cpu-usage'),
+      cpuBar: document.getElementById('cpu-bar'),
+      mem: document.getElementById('mem-usage'),
+      memBar: document.getElementById('mem-bar'),
+      disk: document.getElementById('disk-usage'),
+      diskBar: document.getElementById('disk-bar'),
+      diskMount: document.getElementById('disk-mount'),
+      net: document.getElementById('net-usage'),
+      netSample: document.getElementById('net-sample'),
+      gpu: document.getElementById('gpu-usage'),
+      gpuNote: document.getElementById('gpu-note'),
+      serviceList: document.getElementById('service-list'),
+      pgPool: document.getElementById('pg-pool'),
+      pgDot: document.getElementById('pg-dot'),
+      redisStats: document.getElementById('redis-stats'),
+      redisDot: document.getElementById('redis-dot'),
+      statUsers: document.getElementById('stat-users'),
+      statBans: document.getElementById('stat-bans'),
+      statAppeals: document.getElementById('stat-appeals'),
+      statRegistrations: document.getElementById('stat-registrations'),
+      statOnline: document.getElementById('stat-online'),
+      statMessages: document.getElementById('stat-messages'),
+      statRooms: document.getElementById('stat-rooms'),
+      sysOs: document.getElementById('sys-os'),
+      sysUptime: document.getElementById('sys-uptime'),
+      sysDashboard: document.getElementById('sys-dashboard'),
+      sysSynapse: document.getElementById('sys-synapse'),
+      sysNode: document.getElementById('sys-node'),
+      sysHost: document.getElementById('sys-host'),
+      logs: document.getElementById('logs'),
+      warningsCard: document.getElementById('warnings-card'),
+      warningList: document.getElementById('warning-list'),
+    };
+
+    const formatBytes = (bytes) => {
+      if (bytes === null || bytes === undefined) return '--';
+      const units = ['B','KB','MB','GB','TB'];
+      let value = bytes;
+      let idx = 0;
+      while (value > 1024 && idx < units.length - 1) {
+        value /= 1024;
+        idx += 1;
+      }
+      return `${value.toFixed(1)} ${units[idx]}`;
+    };
+
+    const formatPercent = (value) => value === null || value === undefined
+      ? '--%'
+      : `${value.toFixed(1)}%`;
+
+    const setBar = (bar, percent) => {
+      const safe = Math.max(0, Math.min(percent || 0, 100));
+      bar.style.transform = `scaleX(${safe / 100})`;
+    };
+
+    const setDot = (el, status) => {
+      el.className = 'status-dot';
+      el.classList.add(status);
+    };
+
+    const formatUptime = (seconds) => {
+      if (!Number.isFinite(seconds)) return '--';
+      const h = Math.floor(seconds / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      return `${h} 小时 ${m} 分钟`;
+    };
+
+    const renderServices = (services) => {
+      els.serviceList.innerHTML = '';
+      Object.values(services).forEach((svc) => {
+        const row = document.createElement('div');
+        row.className = 'status-line';
+
+        const info = document.createElement('div');
+        const name = document.createElement('div');
+        name.textContent = svc.name;
+        name.style.fontWeight = '600';
+        const meta = document.createElement('div');
+        meta.className = 'small';
+        meta.textContent = svc.latencyMs ? `${svc.latencyMs} ms` : (svc.message || '');
+
+        info.appendChild(name);
+        info.appendChild(meta);
+
+        const dot = document.createElement('span');
+        dot.className = 'status-dot';
+        dot.classList.add(svc.status);
+
+        row.appendChild(info);
+        row.appendChild(dot);
+        els.serviceList.appendChild(row);
+      });
+    };
+
+    const renderLogs = (logs) => {
+      els.logs.innerHTML = '';
+      (logs || []).slice(-8).forEach((log) => {
+        const item = document.createElement('div');
+        item.className = 'log-item';
+        const header = document.createElement('div');
+        header.className = 'small';
+        header.textContent = `[${log.level}] ${log.timestamp}`;
+        const msg = document.createElement('div');
+        msg.textContent = log.message;
+
+        item.appendChild(header);
+        item.appendChild(msg);
+        els.logs.appendChild(item);
+      });
+      if (!logs?.length) {
+        const empty = document.createElement('div');
+        empty.className = 'log-item';
+        empty.textContent = '最近1小时暂无 WARN/ERROR 日志';
+        els.logs.appendChild(empty);
+      }
+    };
+
+    const renderWarnings = (warnings) => {
+      if (!warnings || !warnings.length) {
+        els.warningsCard.style.display = 'none';
+        return;
+      }
+      els.warningsCard.style.display = 'block';
+      els.warningList.innerHTML = '';
+      warnings.forEach((msg) => {
+        const item = document.createElement('div');
+        item.className = 'log-item warning';
+        item.textContent = msg;
+        els.warningList.appendChild(item);
+      });
+    };
+
+    const renderSnapshot = (data) => {
+      const updated = new Date(data.collectedAt || Date.now());
+      els.lastUpdated.textContent = updated.toLocaleString('zh-CN');
+
+      // Overall status
+      const serviceValues = Object.values(data.services || {});
+      const anyDown = serviceValues.some((s) => s.status === 'down');
+      const anyDegraded = serviceValues.some((s) => s.status === 'degraded');
+      els.overall.textContent = anyDown
+        ? '部分服务不可用'
+        : anyDegraded
+          ? '部分服务延迟升高'
+          : '所有服务正常';
+      els.overall.style.borderColor = anyDown ? 'var(--danger)' : anyDegraded ? 'var(--warning)' : 'var(--border)';
+
+      // Resources
+      const res = data.resources || {};
+      els.cpu.textContent = formatPercent(res.cpuUsagePercent ?? null);
+      setBar(els.cpuBar, res.cpuUsagePercent ?? 0);
+
+      const mem = res.memory || {};
+      els.mem.textContent = `${formatBytes(mem.usedBytes)} / ${formatBytes(mem.totalBytes)}`;
+      setBar(els.memBar, mem.usagePercent || 0);
+
+      const disk = res.disk;
+      els.disk.textContent = disk
+        ? `${formatBytes(disk.usedBytes)} / ${formatBytes(disk.totalBytes)}`
+        : '--';
+      setBar(els.diskBar, disk?.usagePercent || 0);
+      els.diskMount.textContent = disk?.mount || '/';
+
+      const net = res.network;
+      if (net) {
+        const rx = net.rxBytesPerSec ? (net.rxBytesPerSec / (1024 * 1024)).toFixed(2) : '--';
+        const tx = net.txBytesPerSec ? (net.txBytesPerSec / (1024 * 1024)).toFixed(2) : '--';
+        els.net.textContent = `↑ ${rx} · ↓ ${tx}`;
+        els.netSample.textContent = net.sampleIntervalSeconds
+          ? `采样间隔 ${net.sampleIntervalSeconds.toFixed(1)}s`
+          : '等待采样...';
+      } else {
+        els.net.textContent = '↑ -- · ↓ --';
+        els.netSample.textContent = '采集失败';
+      }
+
+      const gpu = res.gpu;
+      els.gpu.textContent = gpu?.usagePercent !== null && gpu?.usagePercent !== undefined
+        ? `${gpu.usagePercent.toFixed(1)}%`
+        : 'N/A';
+      els.gpuNote.textContent = gpu?.message || '若存在 GPU 将自动采集';
+
+      // Services
+      renderServices(data.services || {});
+
+      // Pool & cache
+      if (data.pools?.postgres) {
+        const pg = data.pools.postgres;
+        els.pgPool.textContent = `总 ${pg.total} · 活跃 ${pg.active} · 空闲 ${pg.idle} · 等待 ${pg.waiting}`;
+        setDot(els.pgDot, 'up');
+      } else {
+        els.pgPool.textContent = '不可用';
+        setDot(els.pgDot, 'down');
+      }
+
+      if (data.pools?.redis) {
+        const redis = data.pools.redis;
+        const hit = redis.hitRate !== null && redis.hitRate !== undefined
+          ? `${(redis.hitRate * 100).toFixed(1)}%`
+          : '--';
+        els.redisStats.textContent = `内存 ${formatBytes(redis.usedMemoryBytes)} · 命中率 ${hit} · 键 ${redis.keyCount ?? '--'}`;
+        setDot(els.redisDot, redis.status);
+      } else {
+        els.redisStats.textContent = '不可用';
+        setDot(els.redisDot, 'down');
+      }
+
+      // Stats
+      const stats = data.stats || {};
+      els.statUsers.textContent = stats.totalUsers ?? '--';
+      els.statBans.textContent = stats.activeBans ?? '--';
+      els.statAppeals.textContent = stats.pendingAppeals ?? '--';
+      els.statRegistrations.textContent = stats.pendingRegistrations ?? '--';
+      els.statOnline.textContent = stats.onlineUsers ?? '--';
+      els.statMessages.textContent = stats.todaysMessages ?? '--';
+      els.statRooms.textContent = stats.activeRooms ?? '--';
+
+      // System info
+      const sys = data.system || {};
+      els.sysOs.textContent = sys.os || '--';
+      els.sysUptime.textContent = formatUptime(sys.uptimeSeconds);
+      els.sysDashboard.textContent = sys.dashboardVersion || '--';
+      els.sysSynapse.textContent = sys.synapseVersion || '未上报';
+      els.sysNode.textContent = sys.nodeVersion || '--';
+      els.sysHost.textContent = sys.host || '--';
+
+      // Logs & warnings
+      renderLogs(data.logs || []);
+      renderWarnings(data.warnings || []);
+    };
+
+    const fetchStatus = async () => {
+      try {
+        const res = await fetch('./status', { cache: 'no-store' });
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        renderSnapshot(data);
+      } catch (error) {
+        els.overall.textContent = `加载失败: ${error.message}`;
+        els.overall.style.borderColor = 'var(--danger)';
+      }
+    };
+
+    fetchStatus();
+    setInterval(fetchStatus, REFRESH_MS);
+  </script>
+</body>
+</html>

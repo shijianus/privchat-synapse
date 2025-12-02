@@ -105,7 +105,7 @@ Build and run with Docker:
 docker build -t matrix-dashboard-frontend .
 
 # Run container
-docker run -p 80:80 matrix-dashboard-frontend
+docker run -p 5173:5173 matrix-dashboard-frontend
 ```
 
 ## Status
