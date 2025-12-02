@@ -22,6 +22,26 @@ export const updateUserBodySchema = Joi.object({
   .min(1)
   .required();
 
+export const provisionUserSchema = Joi.object({
+  username: Joi.string()
+    .trim()
+    .min(3)
+    .max(64)
+    .pattern(/^[a-zA-Z0-9._=+-]+$/)
+    .required(),
+  displayName: Joi.string().max(128).allow('', null).optional(),
+  password: Joi.string().min(12).max(128).optional(),
+  generatePassword: Joi.boolean().default(true),
+  userGroup: Joi.string().max(64).default('standard'),
+  registrationStatus: Joi.string().max(64).default('active'),
+  riskLevel: Joi.string().max(64).default('low'),
+  forcePasswordReset: Joi.boolean().default(false),
+  email: Joi.string().email().optional(),
+  msisdn: Joi.string().max(32).optional(),
+  joinDefaultRooms: Joi.boolean().default(false),
+  sendWelcomeMessage: Joi.boolean().default(false),
+}).required();
+
 export const createBanBodySchema = Joi.object({
   banType: Joi.string().valid('silence', 'soft_ban', 'hard_ban').required(),
   reason: Joi.string().max(1024).required(),
@@ -63,6 +83,13 @@ export class UserController {
     res.json(profile);
   };
 
+  provisionUser = async (req: Request, res: Response): Promise<void> => {
+    this.ensureSuperAdmin(req);
+    const actorId = this.ensureActor(req);
+    const result = await this.userService.provisionSynapseUser(req.body, actorId);
+    res.status(201).json(result);
+  };
+
   listUserBans = async (req: Request, res: Response): Promise<void> => {
     const bans = await this.banService.listBansForUser(req.params.synapseUserId);
     res.json(bans);
@@ -83,5 +110,11 @@ export class UserController {
       throw new HttpError(401, '未检测到管理员身份');
     }
     return req.user.id;
+  }
+
+  private ensureSuperAdmin(req: Request): void {
+    if (!req.user?.roles?.includes('super_admin')) {
+      throw new HttpError(403, '仅超级管理员可以创建用户');
+    }
   }
 }

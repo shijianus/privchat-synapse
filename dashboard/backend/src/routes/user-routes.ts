@@ -4,10 +4,11 @@ import {
   UserController,
   createBanBodySchema,
   listUsersQuerySchema,
+  provisionUserSchema,
   updateUserBodySchema,
   userIdParamSchema,
 } from '../controllers/user-controller';
-import { requirePermissions } from '../middleware/permission-middleware';
+import { requirePermissions, requireRoles } from '../middleware/permission-middleware';
 import { validateBody, validateParams, validateQuery } from '../middleware/validate-request';
 
 /**
@@ -21,6 +22,13 @@ export const createUserRoutes = (controller: UserController): Router => {
     requirePermissions('user:read'),
     validateQuery(listUsersQuerySchema),
     controller.listUsers
+  );
+  router.post(
+    '/provision',
+    requireRoles('super_admin'),
+    requirePermissions('user:write'),
+    validateBody(provisionUserSchema),
+    controller.provisionUser
   );
   router.get(
     '/:synapseUserId',

@@ -53,11 +53,11 @@ RUN addgroup -g 1001 -S nginx && \
 USER nginx
 
 # Expose port
-EXPOSE 3000
+EXPOSE 5173
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:3000 || exit 1
+  CMD curl -f http://localhost:5173 || exit 1
 
 # Start nginx
 CMD ["nginx", "-g", "daemon off;"]

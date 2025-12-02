@@ -9,3 +9,4 @@ export * from './registration';
 export * from './system';
 export * from './two-factor';
 export * from './message-sync';
+export * from './monitoring';

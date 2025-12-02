@@ -134,3 +134,27 @@ export type DashboardView =
   | 'media'
   | 'logs'
   | 'settings';
+
+export interface UserProvisionRequest {
+  username: string;
+  displayName?: string;
+  password?: string;
+  generatePassword?: boolean;
+  userGroup?: UserGroup;
+  registrationStatus?: RegistrationStatus;
+  riskLevel?: RiskLevel;
+  forcePasswordReset?: boolean;
+  email?: string;
+  msisdn?: string;
+  joinDefaultRooms?: boolean;
+  sendWelcomeMessage?: boolean;
+}
+
+export interface UserProvisionResponse {
+  synapseUserId: string;
+  userGroup: UserGroup;
+  registrationStatus: RegistrationStatus;
+  riskLevel: RiskLevel;
+  initialPassword?: string;
+  createdAt: string;
+}

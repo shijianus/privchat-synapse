@@ -59,6 +59,7 @@ WORKDIR /app
 # Install production dependencies
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
+COPY --from=build /app/public ./public
 COPY --from=build /app/package*.json ./
 
 # Create non-root user

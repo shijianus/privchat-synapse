@@ -13,6 +13,8 @@ import type {
   PaginationResponse,
   FilterParams,
   ApiError,
+  UserProvisionRequest,
+  UserProvisionResponse,
 } from '../types';
 
 // API Configuration
@@ -149,6 +151,10 @@ export class ApiService {
 
   async createUser(userData: Omit<UserProfile, 'id' | 'createdAt' | 'updatedAt'>): Promise<UserProfile> {
     return this.post<UserProfile>('/users', userData);
+  }
+
+  async provisionUser(payload: UserProvisionRequest): Promise<UserProvisionResponse> {
+    return this.post<UserProvisionResponse>('/users/provision', payload);
   }
 
   async deleteUser(id: string): Promise<void> {
