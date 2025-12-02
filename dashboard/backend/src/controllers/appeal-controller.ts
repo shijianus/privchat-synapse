@@ -1,3 +1,4 @@
+/// <reference path="../types/ambient.d.ts" />
 import { Request, Response } from 'express';
 
 import { AppealService } from '../services/appeal-service';

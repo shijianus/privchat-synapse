@@ -166,8 +166,8 @@ export class UserService {
 
     await this.redisService.cacheJson(this.getCacheKey(synapseUserId), profile, config.cacheTtlSeconds);
     await this.redisService.publish(config.redisUserEventsChannel, {
-      type: 'user_profile_updated',
-      synapseUserId,
+      action: 'user_profile_updated',
+      user_ids: [synapseUserId],
     });
 
     return profile;

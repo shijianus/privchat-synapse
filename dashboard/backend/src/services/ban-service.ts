@@ -144,8 +144,8 @@ export class BanService {
       );
 
       await this.redisService.publish(config.redisUserEventsChannel, {
-        type: 'ban_updated',
-        synapseUserId,
+        action: 'ban_updated',
+        user_ids: [synapseUserId],
       });
 
       await this.userService.invalidateCache(synapseUserId);
@@ -214,8 +214,8 @@ export class BanService {
     });
 
     await this.redisService.publish(config.redisUserEventsChannel, {
-      type: 'ban_updated',
-      synapseUserId,
+      action: 'ban_updated',
+      user_ids: [synapseUserId],
     });
 
     await this.userService.invalidateCache(synapseUserId);

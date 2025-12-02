@@ -2,14 +2,12 @@
 # Production build with security and optimizations
 FROM node:20-alpine AS base
 ARG NODE_ENV=production
+# Install runtime dependencies needed in all stages (entrypoint + healthcheck)
+RUN apk update && apk upgrade && apk add --no-cache dumb-init curl
 
 # Install dependencies only when needed
 FROM base AS deps
 WORKDIR /app
-
-# Install security updates
-RUN apk update && apk upgrade && \
-    apk add --no-cache dumb-init curl
 
 # Copy package files
 COPY package*.json ./

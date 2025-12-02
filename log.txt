@@ -1,0 +1,98 @@
+
+===== Matrix 部署启动向导（所有输出已写入 /home/shijian/projects/privchat-synapse/log.txt） =====
+
+===== 自动安装系统依赖（无环境可直接运行） =====
+[INFO] 系统依赖已满足，跳过 apt 安装。
+Synchronizing state of postgresql.service with SysV service script with /usr/lib/systemd/systemd-sysv-install.
+Executing: /usr/lib/systemd/systemd-sysv-install enable postgresql
+[INFO] 步骤完成：启动 postgresql，耗时 0s
+Synchronizing state of redis-server.service with SysV service script with /usr/lib/systemd/systemd-sysv-install.
+Executing: /usr/lib/systemd/systemd-sysv-install enable redis-server
+[INFO] 步骤完成：启动 redis-server，耗时 1s
+
+===== 安装/检查 Poetry =====
+[INFO] Poetry 已安装：Poetry (version 2.2.1)
+
+===== 安装/检查 Node.js (>=20) =====
+[INFO] Node.js 版本满足要求：v20.19.6
+
+===== 环境预检 =====
+[INFO] cloudflared 已检测到：cloudflared version 2025.11.1 (built 2025-11-07-16:59 UTC)
+[WARN] 未检测到 cf 命令（Cloudflare Zero Trust CLI），如需远程管理隧道请安装。
+[INFO] 检测到内网 IP：192.168.210.135
+
+===== 初始化部署变量 =====
+[WARN] 检测到旧版密钥目录 /home/shijian/projects/privchat-synapse/.runtime/secrets}，自动迁移至 /home/shijian/projects/privchat-synapse/.runtime/secrets。
+[INFO] server_name=chat.831511.xyz
+[INFO] public_baseurl=https://chat.831511.xyz
+[INFO] 数据库：synapse / 用户：synapse_user
+[WARN] 生产环境请用环境变量 DB_PASSWORD/REGISTRATION_SECRET/SERVER_NAME 覆盖默认值。
+
+===== 准备必要目录 =====
+
+===== PostgreSQL 检查 =====
+127.0.0.1:5432 - accepting connections
+[INFO] PostgreSQL 可用。
+
+===== 初始化 PostgreSQL 数据库与用户 =====
+DO
+GRANT
+[INFO] 步骤完成：创建数据库/用户，耗时 0s
+[INFO] PostgreSQL 用户/数据库已准备：synapse_user/synapse
+
+===== Redis 检查 =====
+[INFO] Redis 可用。
+
+===== 准备配置文件 =====
+[WARN] 已使用模板生成本地配置：/home/shijian/projects/privchat-synapse/homeserver.yaml（不使用系统残留配置）。
+[INFO] 使用日志配置：/home/shijian/projects/privchat-synapse/log_config.yaml
+[WARN] 已更新配置：server_name=chat.831511.xyz，public_baseurl=https://chat.831511.xyz，数据库密码、注册密钥已写入。
+[INFO] 使用 Cloudflare 隧道配置：/etc/cloudflared/config.yml
+
+===== 安装 Python 依赖与扩展 =====
+Installing dependencies from lock file
+
+No dependencies to install or update
+
+Installing the current project: matrix-synapse (1.143.0rc2)
+A setup.py file already exists. Using it.
+[INFO] 步骤完成：poetry install，耗时 6s
+[INFO] 步骤完成：构建 Rust 扩展，耗时 0s
+
+===== 生成 Synapse 签名密钥 =====
+[INFO] 签名密钥已存在：/home/shijian/projects/privchat-synapse/.runtime/secrets/chat.831511.xyz.signing.key
+
+===== 启动 Matrix Synapse =====
+[INFO] Synapse 已在运行，无需重复启动。
+
+===== 启动 Dashboard 后端 =====
+[INFO] Dashboard 后端已在运行，无需重复启动。
+
+===== 启动 Dashboard 前端 =====
+[INFO] Dashboard 前端已在运行，无需重复启动。
+
+===== 启动 Cloudflare 隧道 =====
+[INFO] Cloudflare 隧道已在运行，无需重复启动。
+
+===== 健康检查汇总 =====
+[INFO] Synapse API ✓
+[INFO] Dashboard 后端 ✓
+[INFO] Dashboard 前端 ✓
+[INFO] Cloudflare 隧道 ✓
+[WARN] 若出现 1033/522/530，可根据 HELP.md/SAVE.md 检查 DNS、Public Hostnames、SSL=Full(strict)。
+
+===== 完成与后续 =====
+[INFO] 访问内网: Synapse http://127.0.0.1:8008/_matrix/client/versions
+[INFO] 访问内网: Dashboard 后端 http://127.0.0.1:3001/health/ready
+[INFO] 访问内网: Dashboard 前端 http://127.0.0.1:5173
+[INFO] 访问内网 (局域网): Synapse http://192.168.210.135:8008/_matrix/client/versions
+[INFO] 访问内网 (局域网): Dashboard 后端 http://192.168.210.135:3001/health/ready
+[INFO] 访问内网 (局域网): Dashboard 前端 http://192.168.210.135:5173
+[INFO] 公网（需 Cloudflare 配置）：https://chat.831511.xyz/_matrix/client/versions 与 https://admin.chat.831511.xyz/health/ready
+[INFO] 配置文件：/home/shijian/projects/privchat-synapse/homeserver.yaml
+[INFO] 日志配置：/home/shijian/projects/privchat-synapse/log_config.yaml
+[INFO] 密钥/密码文件：/home/shijian/projects/privchat-synapse/.runtime/secrets（db_password / registration_secret），签名密钥：/home/shijian/projects/privchat-synapse/.runtime/secrets/chat.831511.xyz.signing.key
+[INFO] 日志文件：/home/shijian/projects/privchat-synapse/log.txt
+[WARN] Dashboard 测试账号：Email matrix.admin@example.com / Password admin123
+[WARN] 如需停止后台进程，可执行：
+[WARN]   kill $(cat /home/shijian/projects/privchat-synapse/.runtime/synapse.pid /home/shijian/projects/privchat-synapse/.runtime/dashboard_backend.pid /home/shijian/projects/privchat-synapse/.runtime/dashboard_frontend.pid /home/shijian/projects/privchat-synapse/.runtime/cloudflared.pid 2>/dev/null) || true

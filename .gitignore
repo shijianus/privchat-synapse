@@ -35,6 +35,25 @@ __pycache__/
 /media_store/
 /uploads
 /homeserver-config-overrides.d
+.runtime/
+
+# secrets and environment files
+.env
+.env.*
+!.env.example
+!.env.*.example
+/config/
+/cloudflared-config.yaml
+
+# locally generated TLS material
+/docker/nginx/ssl/*.pem
+/docker/nginx/ssl/*.key
+
+# local data and runtime artifacts
+*.db
+*.log
+*.log.*
+*.pid
 
 # For direnv users
 /.envrc

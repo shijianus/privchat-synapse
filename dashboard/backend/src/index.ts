@@ -35,11 +35,15 @@ import { SystemService } from './services/system-service';
 import { TwoFactorService } from './services/two-factor-service';
 import { UserService } from './services/user-service';
 import { httpLogStream, logger } from './utils/logger';
+import { assertPortAvailable } from './utils/port-check';
 
 /**
  * 应用入口，负责初始化依赖并启动 HTTP 服务
  */
 const startServer = async (): Promise<void> => {
+  const listenHost = config.host || '127.0.0.1';
+  await assertPortAvailable(listenHost, config.port);
+
   const databaseService = new DatabaseService();
   await databaseService.init();
 
@@ -123,9 +127,21 @@ const startServer = async (): Promise<void> => {
 
   app.use(errorHandler);
 
-  const listenHost = config.host || '127.0.0.1';
-  app.listen(config.port, listenHost, () => {
+  const server = app.listen(config.port, listenHost, () => {
     logger.info('Dashboard API listening on %s:%d (%s)', listenHost, config.port, config.env);
+  });
+
+  server.on('error', (error: NodeJS.ErrnoException) => {
+    if (error.code === 'EADDRINUSE') {
+      logger.error(
+        '端口 %s:%d 已被占用，启动中断。请停止占用进程或修改环境变量 PORT 重新启动。',
+        listenHost,
+        config.port
+      );
+    } else {
+      logger.error('服务器启动失败: %s', error.message);
+    }
+    process.exit(1);
   });
 };
 

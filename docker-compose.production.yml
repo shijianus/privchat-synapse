@@ -33,6 +33,8 @@ services:
     image: postgres:15-alpine
     container_name: matrix-postgres
     restart: unless-stopped
+    env_file:
+      - .env.production
     environment:
       POSTGRES_DB: synapse
       POSTGRES_USER: synapse
@@ -65,6 +67,8 @@ services:
     image: redis:7-alpine
     container_name: matrix-redis
     restart: unless-stopped
+    env_file:
+      - .env.production
     command: redis-server --requirepass ${REDIS_PASSWORD} --maxmemory 1gb --maxmemory-policy allkeys-lru
     volumes:
       - redis_data:/data
@@ -94,17 +98,36 @@ services:
       dockerfile: docker/Dockerfile
     container_name: matrix-synapse
     restart: unless-stopped
+    env_file:
+      - .env.production
     environment:
       SYNAPSE_SERVER_NAME: ${SYNAPSE_SERVER_NAME}
-      SYNAPSE_REPORT_STATS: "no"
-      SYNAPSE_NO_TLS: "1"
-      SYNAPSE_DATABASE: "postgresql://synapse:${POSTGRES_PASSWORD}@postgres:5432/synapse"
+      SYNAPSE_REPORT_STATS: ${SYNAPSE_REPORT_STATS:-no}
+      SYNAPSE_NO_TLS: ${SYNAPSE_NO_TLS:-1}
+      SYNAPSE_ENABLE_REGISTRATION: ${SYNAPSE_ENABLE_REGISTRATION:-yes}
+      SYNAPSE_ALLOW_GUEST: ${SYNAPSE_ALLOW_GUEST:-no}
+      SYNAPSE_HTTP_PORT: ${SYNAPSE_HTTP_PORT:-8008}
+      SYNAPSE_REGISTRATION_SHARED_SECRET: ${SYNAPSE_REGISTRATION_SHARED_SECRET}
+      SYNAPSE_MACAROON_SECRET_KEY: ${SYNAPSE_MACAROON_SECRET_KEY}
+      SYNAPSE_EVENT_CACHE_SIZE: ${SYNAPSE_EVENT_CACHE_SIZE:-10K}
+      SYNAPSE_DASHBOARD_CACHE_TTL_SECONDS: ${SYNAPSE_DASHBOARD_CACHE_TTL_SECONDS:-300}
+      SYNAPSE_CONFIG_PATH: /data/homeserver.yaml
+      SYNAPSE_CONFIG_DIR: /data
+      SYNAPSE_LOG_CONFIG: /data/log.config
+      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_USER: ${POSTGRES_USER:-synapse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-synapse}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
     volumes:
       - synapse_data:/data
       - synapse_logs:/logs
-      - ./docker/conf/homeserver.yaml:/data/homeserver.yaml
-      - ./docker/conf/log.config:/data/log.config
       - media_store:/data/media_store
+    command: >
+      /bin/sh -c "if [ ! -f /data/homeserver.yaml ]; then /start.py migrate_config; fi && /start.py run"
     networks:
       - matrix-network
     ports:
@@ -137,11 +160,13 @@ services:
       target: production
     container_name: dashboard-backend
     restart: unless-stopped
+    env_file:
+      - .env.production
     environment:
       NODE_ENV: production
       PORT: 3001
-      DATABASE_URL: postgresql://dashboard:${POSTGRES_PASSWORD}@postgres:5432/synapse
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      DATABASE_URL: ${DATABASE_URL:-postgresql://synapse:${POSTGRES_PASSWORD}@postgres:5432/synapse}
+      REDIS_URL: ${REDIS_URL:-redis://:${REDIS_PASSWORD}@redis:6379/0}
       JWT_SECRET: ${JWT_SECRET}
       CORS_ORIGINS: ${CORS_ORIGINS}
       LOG_FORMAT: json
@@ -187,11 +212,13 @@ services:
       target: production
     container_name: dashboard-bot
     restart: unless-stopped
+    env_file:
+      - .env.production
     environment:
       NODE_ENV: production
       PORT: 3002
-      DATABASE_URL: postgresql://dashboard:${POSTGRES_PASSWORD}@postgres:5432/synapse
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      DATABASE_URL: ${DATABASE_URL:-postgresql://synapse:${POSTGRES_PASSWORD}@postgres:5432/synapse}
+      REDIS_URL: ${REDIS_URL:-redis://:${REDIS_PASSWORD}@redis:6379/0}
       JWT_SECRET: ${JWT_SECRET}
       MATRIX_BOT_USERNAME: ${MATRIX_BOT_USERNAME}
       MATRIX_BOT_PASSWORD: ${MATRIX_BOT_PASSWORD}
@@ -240,8 +267,10 @@ services:
       target: production
     container_name: dashboard-frontend
     restart: unless-stopped
+    env_file:
+      - .env.production
     environment:
-      VITE_API_BASE_URL: ${VITE_API_BASE_URL}
+      VITE_API_URL: ${VITE_API_URL}
       VITE_MATRIX_SERVER: ${VITE_MATRIX_SERVER}
       VITE_APP_NAME: "Matrix Dashboard"
       VITE_APP_VERSION: "1.0.7"

@@ -11,6 +11,16 @@ Construct a Dashboard management system that operates in coordination with Synap
 ### Deployment Environment
 All services operate exclusively within the internal network, bound to 127.0.0.1, with no external exposure. The Dashboard and Synapse are co-located on the same physical machine, sharing a single PostgreSQL database instance and Redis instance.
 
+### 重要补充要求 (2025-11-30)
+**内网部署要求**: Dashboard 系统必须在内网环境中完全运行，不需要公网访问暴露。所有管理功能都应在内网环境下提供，包括：
+- Dashboard Backend API (127.0.0.1:3001)
+- Dashboard Frontend 管理界面 (127.0.0.1:5173)
+- 管理员登录和功能操作
+- 用户管理、风控、申诉处理等功能
+- 系统监控和状态检查
+
+**安全考虑**: 为了增强安全性，Dashboard 仅限内网访问，不通过 Cloudflare Tunnel 暴露到公网。</think>
+
 ---
 
 ## II. System Architecture Philosophy

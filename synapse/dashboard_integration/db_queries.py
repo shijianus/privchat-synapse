@@ -5,10 +5,11 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
-from synapse.server import HomeServer
-from synapse.storage.database import LoggingTransaction
+if TYPE_CHECKING:
+    from synapse.server import HomeServer
+    from synapse.storage.database import LoggingTransaction
 
 logger = logging.getLogger(__name__)
 
@@ -51,12 +52,12 @@ _BAN_PRIORITY = {
 _SCHEMA_ERROR_LOGGED = False
 
 
-async def load_user_routing_state(hs: HomeServer, user_id: str) -> Optional[DashboardUserRecord]:
+async def load_user_routing_state(hs: "HomeServer", user_id: str) -> Optional[DashboardUserRecord]:
     """读取用户的最新风控状态，若数据缺失返回 None"""
 
     database = hs.get_datastores().main.db_pool
 
-    def _load_state(txn: LoggingTransaction) -> Optional[DashboardUserRecord]:
+    def _load_state(txn: "LoggingTransaction") -> Optional[DashboardUserRecord]:
         txn.execute(_PROFILE_SQL, (user_id,))
         row = txn.fetchone()
         if row is None:

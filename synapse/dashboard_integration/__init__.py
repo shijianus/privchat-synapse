@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Sequence, Tuple
+from typing import Any, Dict, Optional, Sequence, Tuple, TYPE_CHECKING
 
 from synapse.dashboard_integration.cache import TTLCache
 from synapse.dashboard_integration.db_queries import (
@@ -12,8 +12,10 @@ from synapse.dashboard_integration.db_queries import (
     load_user_routing_state,
 )
 from synapse.dashboard_integration.pubsub import DashboardPubSubListener
-from synapse.server import HomeServer
 from synapse.util.json import json_decoder
+
+if TYPE_CHECKING:
+    from synapse.server import HomeServer
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +46,7 @@ class DashboardIntegration:
 
     # DASHBOARD INTEGRATION
 
-    def __init__(self, hs: HomeServer) -> None:
+    def __init__(self, hs: "HomeServer") -> None:
         self._hs = hs
         self._config = hs.config.dashboard
 
@@ -260,7 +262,7 @@ class DashboardIntegration:
 class NoopDashboardIntegration(DashboardIntegration):
     """A no-op implementation used when the feature is disabled."""
 
-    def __init__(self, hs: HomeServer) -> None:  # type: ignore[override]
+    def __init__(self, hs: "HomeServer") -> None:  # type: ignore[override]
         self._hs = hs
         self._config = hs.config
 
@@ -280,3 +282,9 @@ class NoopDashboardIntegration(DashboardIntegration):
         self, user_id: str, event_type: str, content: Dict[str, Any]
     ) -> Tuple[bool, Optional[str]]:
         return True, None
+
+
+# Module alias for configuration compatibility
+DashboardIntegrationModule = DashboardIntegration
+
+__all__ = ["DashboardIntegration", "DashboardIntegrationModule", "NoopDashboardIntegration"]

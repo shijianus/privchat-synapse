@@ -191,3 +191,19 @@ trusted_key_servers:
 
 password_config:
    enabled: true
+
+## Redis ##
+redis:
+  enabled: true
+  host: "{{ REDIS_HOST or "redis" }}"
+  port: {{ REDIS_PORT or 6379 }}
+  password: "{{ REDIS_PASSWORD or "" }}"
+  dbid: 0
+  use_tls: false
+
+## Dashboard Integration ##
+dashboard:
+  enabled: true
+  redis_channel_user_events:
+    - "{{ REDIS_USER_EVENTS_CHANNEL or "dashboard.user_events" }}"
+  default_cache_ttl_seconds: {{ SYNAPSE_DASHBOARD_CACHE_TTL_SECONDS or 300 }}

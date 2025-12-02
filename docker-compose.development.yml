@@ -66,10 +66,10 @@ services:
     environment:
       NODE_ENV: development
       PORT: 3001
-      DATABASE_URL: postgresql://dashboard:synapse_dev_password@postgres-dev:5432/synapse
+      DATABASE_URL: postgresql://synapse:synapse_dev_password@postgres-dev:5432/synapse
       REDIS_URL: redis://:redis_dev_password@redis-dev:6379
       JWT_SECRET: dev_jwt_secret_minimum_32_characters_long
-      CORS_ORIGINS: http://localhost:3000,http://localhost:3001
+      CORS_ORIGINS: http://localhost:3000,http://localhost:3001,http://localhost:5173,http://127.0.0.1:5173
       LOG_FORMAT: simple
       LOG_LEVEL: debug
     volumes:
@@ -97,7 +97,7 @@ services:
     container_name: dashboard-frontend-dev
     restart: unless-stopped
     environment:
-      VITE_API_BASE_URL: http://localhost:3001
+      VITE_API_URL: http://localhost:3001/api/v1
       VITE_MATRIX_SERVER: http://localhost:8008
       VITE_APP_NAME: "Matrix Dashboard (Dev)"
       VITE_APP_VERSION: "1.0.7-dev"
@@ -125,7 +125,7 @@ services:
     environment:
       NODE_ENV: development
       PORT: 3002
-      DATABASE_URL: postgresql://dashboard:synapse_dev_password@postgres-dev:5432/synapse
+      DATABASE_URL: postgresql://synapse:synapse_dev_password@postgres-dev:5432/synapse
       REDIS_URL: redis://:redis_dev_password@redis-dev:6379
       JWT_SECRET: dev_jwt_secret_minimum_32_characters_long
       MATRIX_BOT_USERNAME: @appeal_bot_dev:localhost

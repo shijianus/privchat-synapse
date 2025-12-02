@@ -3,6 +3,13 @@
 Date: 2025-11-27
 Repository: synapse (Matrix homeserver, extended with Dashboard integration)
 
+## Latest Updates (2025-11-29)
+
+- Verified HELP.md issue: Dashboard API was not listening on port 3001 in source deployments. Root cause: `npm start` ran `node dist/index.js` but the repository ships TypeScript sources only (no prebuilt `dist`), so the process failed before binding. Updated `dashboard/backend/package.json` to run `ts-node src/index.ts` for `npm start` and added `start:prod` to use `dist` when a build exists.
+- Ensured Docker builds also succeed by installing `dumb-init` and `curl` in the base stage of `dashboard/backend/Dockerfile` (required by entrypoint/healthcheck).
+- Aligned default API port to 3001 in `dashboard/backend/src/config/env.ts` so source deployments match Cloudflare/public expectations without requiring `PORT` override.
+- Tests: not run (please rerun backend start/healthcheck after reinstalling dependencies).
+
 ## Executive Summary
 
 - Scope: Complete the development per ADVICE.md and REQUEST.md, audit existing work, validate logic, and ensure Docker-based deployment viability.

@@ -163,8 +163,8 @@ export class TwoFactorService {
       );
 
       await this.redisService.publish(config.redisUserEventsChannel, {
-        type: 'two_factor_verified',
-        synapseUserId: payload.synapseUserId,
+        action: 'two_factor_verified',
+        user_ids: [payload.synapseUserId],
         method: payload.method,
       });
 
@@ -231,8 +231,8 @@ export class TwoFactorService {
       );
 
       await this.redisService.publish(config.redisUserEventsChannel, {
-        type: 'friend_two_factor_verified',
-        synapseUserId: normalizedTarget,
+        action: 'friend_two_factor_verified',
+        user_ids: [normalizedTarget],
       });
 
       return {

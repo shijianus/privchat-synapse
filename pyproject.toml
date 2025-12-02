@@ -95,6 +95,9 @@ dependencies = [
 
     # This is used for parsing multipart responses
     "python-multipart>=0.0.9",
+    "txredisapi (>=1.4.11,<2.0.0)",
+    "hiredis (>=3.3.0,<4.0.0)",
+    "psycopg2-binary (>=2.9.11,<3.0.0)",
 ]
 
 [project.optional-dependencies]

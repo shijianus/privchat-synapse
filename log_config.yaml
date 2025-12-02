@@ -1,0 +1,366 @@
+# Matrix Synapse 生产环境日志配置
+# 内网 + Cloudflare Tunnel 部署方案
+#
+# 使用方法：
+# 1. 复制此文件为 /etc/matrix-synapse/log_config.yaml
+# 2. 确保日志目录存在：/var/log/matrix-synapse
+# 3. 设置正确的文件权限：chown -R synapse:adm /var/log/matrix-synapse
+# 4. 配置 logrotate 进行日志轮转
+
+version: 1
+
+# 日志格式定义
+formatters:
+  # 精确格式 - 包含完整调试信息
+  precise:
+    format: '%(asctime)s - %(name)s - %(lineno)d - %(levelname)s - %(request)s - %(message)s'
+    datefmt: '%Y-%m-%d %H:%M:%S'
+
+  # 结构化格式 - 适合日志分析工具
+  structured:
+    format: '{"timestamp": "%(asctime)s", "logger": "%(name)s", "line": %(lineno)d, "level": "%(levelname)s", "request": "%(request)s", "message": "%(message)s"}'
+    datefmt: '%Y-%m-%dT%H:%M:%S'
+
+  # JSON 格式 - 适合现代日志收集系统
+  json:
+    format: '{"@timestamp": "%(asctime)s", "@version": "1", "message": "%(message)s", "fields": {"logger_name": "%(name)s", "level": "%(levelname)s", "request_id": "%(request)s", "thread_name": "%(threadName)s", "file": "%(filename)s", "line_number": %(lineno)d, "method": "%(funcName)s"}}'
+    datefmt: '%Y-%m-%dT%H:%M:%S'
+
+  # 系统日志格式 - 适合 systemd journal
+  journal:
+    format: '%(name)s: [%(request)s] %(message)s'
+
+  # 简单格式 - 控制台输出
+  simple:
+    format: '%(asctime)s - %(levelname)s - %(message)s'
+    datefmt: '%Y-%m-%d %H:%M:%S'
+
+  # 访问日志格式 - 专用于 HTTP 访问日志
+  access:
+    format: '%(asctime)s %(clientip)s %(request)s %(status)s %(bytes_sent)s %(response_time)s "%(user_agent)s" "%(referrer)s"'
+    datefmt: '%d/%b/%Y:%H:%M:%S %z'
+
+# 处理器定义
+handlers:
+  # 主日志文件处理器 - 带轮转
+  file:
+    class: logging.handlers.RotatingFileHandler
+    formatter: structured  # 使用结构化格式
+    filename: /var/log/matrix-synapse/homeserver.log
+    maxBytes: 104857600  # 100MB
+    backupCount: 10
+    encoding: utf8
+    level: INFO
+
+  # 访问日志文件处理器 - 专用于 HTTP 访问
+  access_file:
+    class: logging.handlers.RotatingFileHandler
+    formatter: access
+    filename: /var/log/matrix-synapse/access.log
+    maxBytes: 52428800   # 50MB
+    backupCount: 7
+    encoding: utf8
+    level: INFO
+
+  # 错误日志文件处理器 - 仅记录错误
+  error_file:
+    class: logging.handlers.RotatingFileHandler
+    formatter: structured
+    filename: /var/log/matrix-synapse/error.log
+    maxBytes: 10485760   # 10MB
+    backupCount: 5
+    encoding: utf8
+    level: ERROR
+
+  # 联邦日志文件处理器 - 记录联邦通信
+  federation_file:
+    class: logging.handlers.RotatingFileHandler
+    formatter: structured
+    filename: /var/log/matrix-synapse/federation.log
+    maxBytes: 52428800   # 50MB
+    backupCount: 7
+    encoding: utf8
+    level: INFO
+
+  # 数据库日志文件处理器 - 记录 SQL 操作
+  database_file:
+    class: logging.handlers.RotatingFileHandler
+    formatter: structured
+    filename: /var/log/matrix-synapse/database.log
+    maxBytes: 52428800   # 50MB
+    backupCount: 5
+    encoding: utf8
+    level: WARNING  # 减少数据库日志噪音
+
+  # Dashboard 集成日志 - 记录管理操作
+  dashboard_file:
+    class: logging.handlers.RotatingFileHandler
+    formatter: structured
+    filename: /var/log/matrix-synapse/dashboard.log
+    maxBytes: 20971520   # 20MB
+    backupCount: 3
+    encoding: utf8
+    level: INFO
+
+  # 媒体日志文件处理器 - 记录媒体操作
+  media_file:
+    class: logging.handlers.RotatingFileHandler
+    formatter: structured
+    filename: /var/log/matrix-synapse/media.log
+    maxBytes: 20971520   # 20MB
+    backupCount: 3
+    encoding: utf8
+    level: INFO
+
+  # JSON 日志处理器 - 适合 ELK Stack 或类似系统
+  json_file:
+    class: logging.handlers.RotatingFileHandler
+    formatter: json
+    filename: /var/log/matrix-synapse/homeserver.json
+    maxBytes: 104857600  # 100MB
+    backupCount: 5
+    encoding: utf8
+    level: INFO
+
+  # 系统日志处理器 - 发送到 systemd journal
+
+  # 控制台处理器 - 开发和调试
+  console:
+    class: logging.StreamHandler
+    formatter: simple
+    level: INFO
+    stream: ext://sys.stdout
+
+  # 控制台错误处理器 - 错误信息输出到 stderr
+  console_error:
+    class: logging.StreamHandler
+    formatter: simple
+    level: ERROR
+    stream: ext://sys.stderr
+
+# 日志记录器配置
+loggers:
+  # 主 Synapse 日志记录器
+  synapse:
+    level: INFO
+    handlers: [file, json_file]
+    propagate: false
+
+  # Synapse 访问日志 - HTTP 请求
+  synapse.access:
+    level: INFO
+    handlers: [access_file]
+    propagate: false
+
+  # Synapse 存储层日志
+  synapse.storage:
+    level: INFO
+    handlers: [file, database_file]
+    propagate: false
+
+  # Synapse 数据库 SQL 日志
+  synapse.storage.SQL:
+    level: WARNING  # 减少SQL日志噪音
+    handlers: [database_file]
+    propagate: false
+
+  # Dashboard 集成日志
+  synapse.dashboard:
+    level: INFO
+    handlers: [file, dashboard_file]
+    propagate: false
+
+  # 联邦通信日志
+  synapse.federation:
+    level: INFO
+    handlers: [file, federation_file]
+    propagate: false
+
+  # 联邦客户端日志
+  synapse.federation.transport.client:
+    level: INFO
+    handlers: [federation_file]
+    propagate: false
+
+  # 联邦服务器日志
+  synapse.federation.transport.server:
+    level: INFO
+    handlers: [federation_file]
+    propagate: false
+
+  # 媒体仓库日志
+  synapse.media:
+    level: INFO
+    handlers: [file, media_file]
+    propagate: false
+
+  # 媒体仓库存储日志
+  synapse.media.storage:
+    level: INFO
+    handlers: [media_file]
+    propagate: false
+
+  # 事件处理日志
+  synapse.events:
+    level: INFO
+    handlers: [file]
+    propagate: false
+
+  # 房间处理日志
+  synapse.handlers.room:
+    level: INFO
+    handlers: [file]
+    propagate: false
+
+  # 消息处理日志
+  synapse.handlers.message:
+    level: INFO
+    handlers: [file]
+    propagate: false
+
+  # 认证处理日志
+  synapse.handlers.auth:
+    level: INFO
+    handlers: [file]
+    propagate: false
+
+  # 用户管理日志
+  synapse.handlers.presence:
+    level: WARNING  # 减少存在日志噪音
+    handlers: [file]
+    propagate: false
+
+  # 设备管理日志
+  synapse.handlers.device:
+    level: INFO
+    handlers: [file]
+    propagate: false
+
+  # 缓存日志
+  synapse.cache:
+    level: INFO
+    handlers: [file]
+    propagate: false
+
+  # Redis 连接日志
+  synapse.redis:
+    level: INFO
+    handlers: [file]
+    propagate: false
+
+  # HTTP 客户端日志
+  synapse.http.client:
+    level: INFO
+    handlers: [file]
+    propagate: false
+
+  # HTTP 服务器日志
+  synapse.http.server:
+    level: INFO
+    handlers: [file, access_file]
+    propagate: false
+
+  # 复制日志（用于 worker 配置）
+  synapse.replication.tcp:
+    level: INFO
+    handlers: [file]
+    propagate: false
+
+  # 工作进程日志
+  synapse.workers:
+    level: INFO
+    handlers: [file]
+    propagate: false
+
+  # Twisted 框架日志
+  twisted:
+    level: INFO
+    handlers: [file]
+    propagate: false
+
+  # Twisted Web 日志
+  twisted.web:
+    level: INFO
+    handlers: [file, access_file]
+    propagate: false
+
+  # Twisted 协议日志
+  twisted.internet:
+    level: INFO
+    handlers: [file]
+    propagate: false
+
+  # 错误日志记录器
+  error:
+    level: ERROR
+    handlers: [error_file, console_error]
+    propagate: false
+
+# 根日志记录器配置
+root:
+  level: INFO
+  handlers: [file, console]  # 主日志文件和控制台
+
+# 禁用某些噪音日志
+disable_existing_loggers: false
+
+# 日志轮转建议配置 (logrotate)
+# 创建文件: /etc/logrotate.d/matrix-synapse
+#
+# 内容:
+# /var/log/matrix-synapse/*.log {
+#     daily
+#     missingok
+#     rotate 30
+#     compress
+#     delaycompress
+#     notifempty
+#     create 644 synapse adm
+#     postrotate
+#         systemctl reload matrix-synapse || true
+#     endscript
+# }
+#
+# /var/log/matrix-synapse/*.json {
+#     daily
+#     missingok
+#     rotate 7
+#     compress
+#     delaycompress
+#     notifempty
+#     create 644 synapse adm
+#     postrotate
+#         systemctl reload matrix-synapse || true
+#     endscript
+# }
+
+# 目录和权限设置：
+# sudo mkdir -p /var/log/matrix-synapse
+# sudo chown -R synapse:adm /var/log/matrix-synapse
+# sudo chmod 750 /var/log/matrix-synapse
+# sudo chmod 640 /var/log/matrix-synapse/*.log
+
+# 日志文件用途说明：
+#
+# homeserver.log     - 主要的服务器日志，包含所有操作
+# access.log        - HTTP 访问日志，记录所有客户端请求
+# error.log         - 仅错误信息，便于快速排查问题
+# federation.log    - 联邦通信日志，用于调试联邦连接问题
+# database.log      - 数据库操作日志，用于性能优化
+# dashboard.log     - Dashboard 集成操作日志，用于审计
+# media.log         - 媒体文件操作日志，用于存储管理
+# homeserver.json   - JSON 格式日志，便于 ELK Stack 分析
+
+# 性能优化建议：
+# 1. 使用 SSD 存储日志文件以提高 I/O 性能
+# 2. 考虑将日志文件存储在单独的磁盘分区
+# 3. 定期归档旧日志文件以释放磁盘空间
+# 4. 监控日志文件大小，避免磁盘空间耗尽
+# 5. 考虑使用日志聚合工具（如 ELK、Graylog）
+
+# 监控和告警：
+# 1. 监控 error.log 的新增错误
+# 2. 监控日志文件增长速度
+# 3. 监控磁盘使用率
+# 4. 设置关键字告警（如 "CRITICAL", "FATAL"）
+# 5. 监控联邦连接错误
