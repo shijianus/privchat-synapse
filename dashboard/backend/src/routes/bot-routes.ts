@@ -1,6 +1,7 @@
 import { Router } from 'express';
 
 import { AppealController } from '../controllers/appeal-controller';
+import { ReportController } from '../controllers/report-controller';
 import { TwoFactorController } from '../controllers/two-factor-controller';
 import { botAuthMiddleware } from '../middleware/bot-auth-middleware';
 import { validateBody, validateParams } from '../middleware/validate-request';
@@ -10,10 +11,12 @@ import {
   botSubmitAppealSchema,
 } from '../validators/appeal-validators';
 import { friendVerificationSchema } from '../validators/two-factor-validators';
+import { botReportSchema } from '../validators/report-validators';
 
 export interface BotRouteDependencies {
   readonly appealController: AppealController;
   readonly twoFactorController: TwoFactorController;
+  readonly reportController: ReportController;
 }
 
 /**
@@ -42,6 +45,13 @@ export const createBotRoutes = (deps: BotRouteDependencies): Router => {
     botAuthMiddleware,
     validateBody(friendVerificationSchema),
     deps.twoFactorController.verifyFriend
+  );
+
+  router.post(
+    '/reports',
+    botAuthMiddleware,
+    validateBody(botReportSchema),
+    deps.reportController.submitFromBot
   );
 
   return router;

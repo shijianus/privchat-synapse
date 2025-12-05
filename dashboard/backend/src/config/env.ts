@@ -18,6 +18,7 @@ export interface AppConfig {
   readonly refreshTokenTtlSeconds: number;
   readonly cacheTtlSeconds: number;
   readonly redisUserEventsChannel: string;
+  readonly botServiceBaseUrl: string;
   readonly database: {
     readonly host: string;
     readonly port: number;
@@ -138,6 +139,7 @@ export const config: AppConfig = {
   accessTokenTtlSeconds: toNumber(process.env.JWT_ACCESS_TTL_SECONDS, 900),
   refreshTokenTtlSeconds: toNumber(process.env.JWT_REFRESH_TTL_SECONDS, 604800),
   cacheTtlSeconds: toNumber(process.env.DASHBOARD_CACHE_TTL_SECONDS, 300),
+  botServiceBaseUrl: process.env.BOT_SERVICE_BASE_URL || 'http://127.0.0.1:3002',
   redisUserEventsChannel: process.env.REDIS_USER_EVENTS_CHANNEL || 'dashboard.user_events',
   database: {
     host: dbFromUrl?.host || process.env.DB_HOST || process.env.POSTGRES_HOST || '127.0.0.1',

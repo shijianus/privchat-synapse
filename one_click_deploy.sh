@@ -11,35 +11,47 @@ fatal() { printf '[FAIL] %s\n' "$*" >&2; exit 1; }
 section() { printf '\n===== %s =====\n' "$*"; }
 
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOG_FILE="${BASE_DIR}/log.txt"
+LOG_FILE="${LOG_FILE:-${BASE_DIR}/log.txt}"
 RUNTIME_DIR="${BASE_DIR}/.runtime"
 : "${NVM_DIR:=${HOME}/.nvm}"
 SECRETS_DIR="${RUNTIME_DIR}/secrets"
-mkdir -p "${RUNTIME_DIR}" "${SECRETS_DIR}"
-: > "${LOG_FILE}"
+mkdir -p "${RUNTIME_DIR}" "${SECRETS_DIR}" "$(dirname "${LOG_FILE}")"
+cat /dev/null > "${LOG_FILE}"
 exec > >(tee "${LOG_FILE}") 2>&1
 export PATH="${HOME}/.local/bin:${PATH}"
 
-CONFIG_PATH="${CONFIG_PATH:-/etc/matrix-synapse/homeserver.yaml}"
-LOG_CONFIG_PATH="${LOG_CONFIG_PATH:-/etc/matrix-synapse/log_config.yaml}"
-LOCAL_CONFIG="${BASE_DIR}/homeserver.yaml"
-LOCAL_LOG_CONFIG="${BASE_DIR}/log_config.yaml"
-FALLBACK_CONFIG="${BASE_DIR}/config/homeserver_matrix_production.yaml"
-FALLBACK_LOG_CONFIG="${BASE_DIR}/config/log_config_production.yaml"
+DATA_DIR="${DATA_DIR:-${BASE_DIR}/synapse-data}"
+CONFIG_PATH="${CONFIG_PATH:-${BASE_DIR}/homeserver.generated.yaml}"
+LOG_CONFIG_PATH="${LOG_CONFIG_PATH:-${BASE_DIR}/log_config.generated.yaml}"
+SYNAPSE_PID_FILE="${RUNTIME_DIR}/synapse.pid"
+FALLBACK_CONFIG="${BASE_DIR}/docs/sample_config.yaml"
+FALLBACK_LOG_CONFIG="${BASE_DIR}/docs/sample_log_config.yaml"
 CF_CONFIG="${CF_CONFIG:-/etc/cloudflared/config.yml}"
 CF_CONFIG_FALLBACK="${BASE_DIR}/cloudflared-config.yaml"
 CF_TUNNEL_ID="${CF_TUNNEL_ID:-838e2463-3bad-4129-a0a2-63d9abf0f215}"
 BACKEND_DIR="${BASE_DIR}/dashboard/backend"
 FRONTEND_DIR="${BASE_DIR}/dashboard/frontend"
+BOT_DIR="${BASE_DIR}/dashboard/bot"
 BACKEND_PORT="${BACKEND_PORT:-3001}"
 FRONTEND_PORT="${FRONTEND_PORT:-5173}"
-SERVER_NAME_DEFAULT="${SERVER_NAME:-chat.831511.xyz}"
-PUBLIC_BASEURL_DEFAULT="${PUBLIC_BASEURL:-https://${SERVER_NAME_DEFAULT}}"
+BOT_PORT="${BOT_PORT:-3002}"
+SERVER_NAME_DEFAULT="chat.831511.xyz"
+PUBLIC_BASEURL_DEFAULT="https://chat.831511.xyz"
 DB_USER="${DB_USER:-synapse_user}"
 DB_NAME="${DB_NAME:-synapse}"
 SIGNING_KEY_PATH_DEFAULT="${SIGNING_KEY_PATH:-${SECRETS_DIR}/${SERVER_NAME_DEFAULT}.signing.key}"
+BACKEND_ENV_PATH="${BACKEND_DIR}/.env"
+FRONTEND_ENV_PATH="${FRONTEND_DIR}/.env.local"
+BOT_ENV_PATH="${BOT_DIR}/.env"
 LAN_IP="127.0.0.1"
-USING_LOCAL_CONFIG="false"
+BIND_ALL_INTERFACES="${BIND_ALL_INTERFACES:-0}"
+ENABLE_MINIO_HEALTH="${ENABLE_MINIO_HEALTH:-0}"
+MINIO_HEALTH_ENDPOINT="${MINIO_HEALTH_ENDPOINT:-http://127.0.0.1:9000/minio/health/live}"
+FORCE_RESTART_SERVICES="${FORCE_RESTART_SERVICES:-1}"
+PORT_WAIT_SECONDS="${PORT_WAIT_SECONDS:-20}"
+FRONTEND_API_BASE_URL="${FRONTEND_API_BASE_URL:-}"
+SYNAPSE_INTERNAL_BASE_URL="${SYNAPSE_INTERNAL_BASE_URL:-}"
+BOT_API_BASE_URL="${BOT_API_BASE_URL:-}"
 # 每步默认超时时间（秒）；可通过环境变量覆盖，设为 0 表示不限时只记录耗时
 TIMEOUT_APT="${TIMEOUT_APT:-600}"
 TIMEOUT_SERVICE="${TIMEOUT_SERVICE:-120}"
@@ -93,6 +105,119 @@ with_timeout_allow_fail() {
         info "步骤完成：${desc}，耗时 ${elapsed}s"
     fi
     return "${status}"
+}
+
+stop_stale_pid() {
+    local pid_file="$1" desc="$2"
+    if [[ -f "${pid_file}" ]]; then
+        local pid
+        pid="$(cat "${pid_file}" 2>/dev/null || true)"
+        if [[ -n "${pid}" && "${pid}" =~ ^[0-9]+$ ]]; then
+            if ps -p "${pid}" >/dev/null 2>&1; then
+                warn "${desc} 已在运行 (pid=${pid})，跳过重复启动。"
+                return 1
+            else
+                warn "发现陈旧 pid 文件 ${pid_file}，已清理。"
+                rm -f "${pid_file}"
+            fi
+        else
+            rm -f "${pid_file}"
+        fi
+    fi
+    return 0
+}
+
+graceful_stop_pid() {
+    local pid_file="$1" desc="$2"
+    if [[ ! -f "${pid_file}" ]]; then
+        return 0
+    fi
+    local pid
+    pid="$(cat "${pid_file}" 2>/dev/null || true)"
+    if [[ -z "${pid}" || ! "${pid}" =~ ^[0-9]+$ ]]; then
+        rm -f "${pid_file}"
+        return 0
+    fi
+    if ! ps -p "${pid}" >/dev/null 2>&1; then
+        rm -f "${pid_file}"
+        return 0
+    fi
+    warn "${desc} 正在重启 (pid=${pid})..."
+    kill "${pid}" >/dev/null 2>&1 || true
+    for _ in $(seq 1 15); do
+        if ! ps -p "${pid}" >/dev/null 2>&1; then
+            break
+        fi
+        sleep 1
+    done
+    if ps -p "${pid}" >/dev/null 2>&1; then
+        warn "${desc} 未能优雅退出，发送 SIGKILL。"
+        kill -9 "${pid}" >/dev/null 2>&1 || true
+    fi
+    rm -f "${pid_file}"
+    return 0
+}
+
+is_port_in_use() {
+    local port="$1"
+    if command -v ss >/dev/null 2>&1; then
+        if ss -ltn 2>/dev/null | awk '{print $4}' | grep -Eq ":${port}( |$)"; then
+            return 0
+        fi
+        return 1
+    fi
+    if command -v lsof >/dev/null 2>&1; then
+        lsof -nP -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1 && return 0
+        return 1
+    fi
+    if command -v netstat >/dev/null 2>&1; then
+        netstat -ltn 2>/dev/null | awk '{print $4}' | grep -Eq ":${port}( |$)" && return 0
+        return 1
+    fi
+    return 1
+}
+
+check_port_free() {
+    local port="$1" desc="$2"
+    local waited=0
+    local force_attempted=0
+    while is_port_in_use "${port}"; do
+        if [[ "${waited}" -ge "${PORT_WAIT_SECONDS}" ]]; then
+            if [[ "${FORCE_RESTART_SERVICES}" == "1" && "${force_attempted}" -eq 0 ]]; then
+                kill_port_processes "${port}" "${desc}"
+                force_attempted=1
+                waited=0
+                continue
+            fi
+            warn "${desc} 端口 ${port} 在 ${PORT_WAIT_SECONDS}s 内仍被占用，请手动释放端口或设置 ${desc} 端口环境变量后重试。"
+            return 1
+        fi
+        sleep 1
+        waited=$((waited+1))
+    done
+    return 0
+}
+
+kill_port_processes() {
+    local port="$1" desc="$2"
+    local killed=0
+    if command -v lsof >/dev/null 2>&1; then
+        mapfile -t pids < <(lsof -t -iTCP:"${port}" -sTCP:LISTEN 2>/dev/null | sort -u)
+        if [[ "${#pids[@]}" -gt 0 ]]; then
+            warn "${desc} 端口 ${port} 被进程 (${pids[*]}) 占用，尝试终止。"
+            kill "${pids[@]}" >/dev/null 2>&1 || true
+            killed=1
+        fi
+    elif command -v fuser >/dev/null 2>&1; then
+        warn "${desc} 端口 ${port} 被占用，使用 fuser 尝试终止。"
+        fuser -k -n tcp "${port}" >/dev/null 2>&1 || true
+        killed=1
+    fi
+    if [[ "${killed}" -eq 1 ]]; then
+        sleep 1
+    else
+        warn "${desc} 端口 ${port} 被占用，但无法自动识别进程，请手动处理。"
+    fi
 }
 
 ensure_secret_value() {
@@ -264,34 +389,25 @@ ensure_redis() {
 
 prepare_directories() {
     section "准备必要目录"
-    local media_dir="/var/lib/matrix-synapse"
-    local media_store_dir="/var/lib/matrix-synapse/media_store"
-    local log_dir="/var/log/matrix-synapse"
+    local media_dir="${DATA_DIR}"
+    local media_store_dir="${DATA_DIR}/media_store"
+    local log_dir="${DATA_DIR}/logs"
     local signing_dir="${SIGNING_KEY_PATH:-${SIGNING_KEY_PATH_DEFAULT}}"
-    for dir in "${media_dir}" "${media_store_dir}" "${log_dir}" "$(dirname "${signing_dir}")"; do
-        if [[ ! -d "${dir}" ]]; then
-            maybe_sudo mkdir -p "${dir}"
-            warn "已创建目录：${dir}"
-        fi
-    done
+    mkdir -p "${media_dir}" "${media_store_dir}" "${log_dir}" "$(dirname "${signing_dir}")"
+    info "本地数据目录：${DATA_DIR}（media_store / logs / pid）"
 }
 
 init_secrets() {
     section "初始化部署变量"
-    local legacy_dir="${RUNTIME_DIR}/secrets}"
-    if [[ -d "${legacy_dir}" ]]; then
-        warn "检测到旧版密钥目录 ${legacy_dir}，自动迁移至 ${SECRETS_DIR}。"
-        for f in db_password registration_secret *.signing.key; do
-            if compgen -G "${legacy_dir}/${f}" >/dev/null 2>&1; then
-                cp -n ${legacy_dir}/${f} "${SECRETS_DIR}/" 2>/dev/null || true
-            fi
-        done
-    fi
     SERVER_NAME_VALUE="${SERVER_NAME:-${SERVER_NAME_DEFAULT}}"
-    PUBLIC_BASEURL_VALUE="${PUBLIC_BASEURL:-https://${SERVER_NAME_VALUE}}"
+    PUBLIC_BASEURL_VALUE="${PUBLIC_BASEURL:-${PUBLIC_BASEURL_DEFAULT}}"
     DB_PASSWORD="$(ensure_secret_value "DB_PASSWORD" "${SECRETS_DIR}/db_password" 16 "PostgreSQL 密码")"
     REGISTRATION_SECRET="$(ensure_secret_value "REGISTRATION_SECRET" "${SECRETS_DIR}/registration_secret" 32 "注册共享密钥")"
     MACAROON_SECRET_KEY="$(ensure_secret_value "MACAROON_SECRET_KEY" "${SECRETS_DIR}/macaroon_secret_key" 32 "macaroon_secret_key")"
+    FORM_SECRET="$(ensure_secret_value "FORM_SECRET" "${SECRETS_DIR}/form_secret" 32 "form_secret")"
+    JWT_SECRET="$(ensure_secret_value "JWT_SECRET" "${SECRETS_DIR}/jwt_secret" 32 "Dashboard JWT 密钥")"
+    JWT_REFRESH_SECRET="$(ensure_secret_value "JWT_REFRESH_SECRET" "${SECRETS_DIR}/jwt_refresh_secret" 32 "Dashboard refresh 密钥")"
+    BOT_API_SECRET="$(ensure_secret_value "BOT_API_SECRET" "${SECRETS_DIR}/bot_api_secret" 32 "Bot API secret")"
     SIGNING_KEY_PATH="${SIGNING_KEY_PATH:-${SIGNING_KEY_PATH_DEFAULT}}"
     info "server_name=${SERVER_NAME_VALUE}"
     info "public_baseurl=${PUBLIC_BASEURL_VALUE}"
@@ -329,48 +445,6 @@ EOF
     info "PostgreSQL 用户/数据库已准备：${DB_USER}/${DB_NAME}"
 }
 
-apply_config_overrides() {
-    local cfg="$1"
-    perl -pi -e "s/^server_name:.*/server_name: \"${SERVER_NAME_VALUE}\"/" "${cfg}"
-    perl -pi -e "s|^public_baseurl:.*|public_baseurl: \"${PUBLIC_BASEURL_VALUE}\"|" "${cfg}"
-    perl -pi -e "s|password: \"your_postgres_password_here\"|password: \"${DB_PASSWORD}\"|" "${cfg}"
-    perl -pi -e "s|registration_shared_secret: \"your_registration_secret_here\"|registration_shared_secret: \"${REGISTRATION_SECRET}\"|" "${cfg}"
-    perl -pi -e "s|^signing_key_path:.*|signing_key_path: \"${SIGNING_KEY_PATH}\"|" "${cfg}"
-    if grep -q "^macaroon_secret_key:" "${cfg}"; then
-        perl -pi -e "s|^macaroon_secret_key:.*|macaroon_secret_key: \"${MACAROON_SECRET_KEY}\"|" "${cfg}"
-    else
-        printf 'macaroon_secret_key: "%s"\n' "${MACAROON_SECRET_KEY}" >> "${cfg}"
-    fi
-    if [[ -n "${LOG_CONFIG_PATH}" ]]; then
-        perl -pi -e "s|^log_config:.*|log_config: \"${LOG_CONFIG_PATH}\"|" "${cfg}"
-    fi
-    if grep -q "^report_stats:" "${cfg}"; then
-        perl -pi -e "s/^report_stats:.*/report_stats: false/" "${cfg}"
-    else
-        printf '\nreport_stats: false\n' >> "${cfg}"
-    fi
-    if grep -q "^suppress_key_server_warning:" "${cfg}"; then
-        perl -pi -e "s/^suppress_key_server_warning:.*/suppress_key_server_warning: true/" "${cfg}"
-    else
-        printf 'suppress_key_server_warning: true\n' >> "${cfg}"
-    fi
-    # psycopg2 不支持 query_timeout DSN 参数，移除避免启动报错
-    perl -ni -e "print unless /query_timeout:/" "${cfg}"
-    # 移除 options 拼接的 default_transaction_isolation 以兼容 PostgreSQL
-    perl -ni -e "print unless /^    options:/ || /^    options:/" "${cfg}"
-    # Dashboard 自定义模块在当前分支签名不匹配，默认禁用以保证启动
-    perl -0777 -pi -e "s/modules:\\n(\\s+- module:.*?)(?=\\n[A-Za-z_]|\\Z)/modules: []\\n/sg" "${cfg}"
-    warn "已更新配置：server_name=${SERVER_NAME_VALUE}，public_baseurl=${PUBLIC_BASEURL_VALUE}，数据库密码、注册密钥已写入。"
-}
-
-sanitize_log_config() {
-    local log_cfg="$1"
-    # 移除 systemd handler，避免缺少 python-systemd 导致报错
-    perl -0777 -pi -e "s/^[ ]{2}systemd:\\n(?:^[ ]{4}.*\\n)+//mg" "${log_cfg}"
-    perl -pi -e "s/handlers: \\[file, json_file, systemd\\]/handlers: [file, json_file]/" "${log_cfg}"
-    perl -pi -e "s/handlers: \\[systemd, file, json_file\\]/handlers: [file, json_file]/" "${log_cfg}"
-}
-
 detect_lan_ip() {
     local candidate=""
     if command -v hostname >/dev/null 2>&1; then
@@ -388,65 +462,296 @@ detect_lan_ip() {
     fi
 }
 
-prepare_configs() {
-    section "准备配置文件"
-    # 优先使用模板生成本地配置，避免系统残留配置（server_name=localhost 等）导致失败。
-    if [[ -f "${FALLBACK_CONFIG}" ]]; then
-        cp "${FALLBACK_CONFIG}" "${LOCAL_CONFIG}"
-        CONFIG_PATH="${LOCAL_CONFIG}"
-        LOG_CONFIG_PATH="${LOCAL_LOG_CONFIG}"
-        USING_LOCAL_CONFIG="true"
-        warn "已使用模板生成本地配置：${LOCAL_CONFIG}（不使用系统残留配置）。"
-    else
-        if [[ -f "${CONFIG_PATH}" ]]; then
-            info "未找到模板，继续使用已有配置：${CONFIG_PATH}"
-            USING_LOCAL_CONFIG="false"
-        else
-            fatal "未找到 Synapse 配置模板，也未找到系统配置。"
-        fi
+detect_server_name_from_db() {
+    section "检测现有数据库中的 server_name"
+    local existing_domain=""
+    if ! command -v psql >/dev/null 2>&1; then
+        warn "未检测到 psql，跳过 server_name 自动探测。"
+        return
     fi
-
-    if [[ -f "${LOG_CONFIG_PATH}" ]]; then
-        info "使用日志配置：${LOG_CONFIG_PATH}"
-    else
-        if [[ -f "${FALLBACK_LOG_CONFIG}" ]]; then
-            local log_dir
-            log_dir="$(dirname "${LOG_CONFIG_PATH}")"
-            if [[ -w "${log_dir}" ]]; then
-                mkdir -p "${log_dir}"
-                cp "${FALLBACK_LOG_CONFIG}" "${LOG_CONFIG_PATH}"
-            elif [[ ! -d "${log_dir}" && -w "$(dirname "${log_dir}")" ]]; then
-                mkdir -p "${log_dir}"
-                cp "${FALLBACK_LOG_CONFIG}" "${LOG_CONFIG_PATH}"
+    existing_domain="$(PGPASSWORD="${DB_PASSWORD}" psql -h 127.0.0.1 -U "${DB_USER}" -d "${DB_NAME}" -tAc "SELECT split_part(name, ':', 2) FROM users LIMIT 1" 2>/dev/null | head -n1 | tr -d '[:space:]')"
+    if [[ -n "${existing_domain}" && "${existing_domain}" != "${SERVER_NAME_VALUE}" ]]; then
+        warn "数据库中已存在用户域 ${existing_domain}，将 server_name 从 ${SERVER_NAME_VALUE} 调整为 ${existing_domain} 以避免启动失败。"
+        SERVER_NAME_VALUE="${existing_domain}"
+        if [[ -z "${PUBLIC_BASEURL:-}" ]]; then
+            if [[ "${SERVER_NAME_VALUE}" == "chat.internal" ]]; then
+                PUBLIC_BASEURL_VALUE="${PUBLIC_BASEURL_DEFAULT}"
             else
-                maybe_sudo mkdir -p "${log_dir}"
-                maybe_sudo cp "${FALLBACK_LOG_CONFIG}" "${LOG_CONFIG_PATH}"
+                PUBLIC_BASEURL_VALUE="https://${SERVER_NAME_VALUE}"
             fi
-            warn "日志配置缺失，已复制 ${FALLBACK_LOG_CONFIG} -> ${LOG_CONFIG_PATH}。"
-        else
-            warn "未找到日志配置模板，将使用默认日志配置。"
+            info "自动调整 public_baseurl=${PUBLIC_BASEURL_VALUE}"
         fi
-    fi
-    if [[ -f "${LOG_CONFIG_PATH}" ]]; then
-        sanitize_log_config "${LOG_CONFIG_PATH}"
-    fi
-
-    if [[ "${USING_LOCAL_CONFIG}" == "true" ]]; then
-        apply_config_overrides "${CONFIG_PATH}"
     else
-        warn "检测到已有系统配置，未自动覆盖 server_name/密码，请人工确认。"
+        info "未检测到需调整的 server_name，继续使用 ${SERVER_NAME_VALUE}"
     fi
+}
 
+apply_dashboard_schema() {
+    section "导入 Dashboard Schema（自动执行 dashboard/schema/dashboard_schema.sql）"
+    if ! command -v psql >/dev/null 2>&1; then
+        warn "未找到 psql，跳过 schema 导入，请手动执行 dashboard/schema/dashboard_schema.sql"
+        return
+    fi
+    # 如已有 dashboard 表，则跳过导入以避免重复 owner 报错
+    local has_tables
+    has_tables="$(PGPASSWORD="${DB_PASSWORD}" psql -h 127.0.0.1 -U "${DB_USER}" -d "${DB_NAME}" -tAc "SELECT count(1) FROM information_schema.tables WHERE table_schema='dashboard'" 2>/dev/null | tr -d '[:space:]')"
+    if [[ "${has_tables}" =~ ^[0-9]+$ && "${has_tables}" -gt 0 ]]; then
+        info "检测到 dashboard schema 已存在 ${has_tables} 张表，跳过重复导入。"
+        return
+    fi
+    local schema_file="${BASE_DIR}/dashboard/schema/dashboard_schema.sql"
+    if [[ ! -f "${schema_file}" ]]; then
+        warn "未找到 ${schema_file}，跳过 schema 导入。"
+        return
+    fi
+    PGPASSWORD="${DB_PASSWORD}" with_timeout_allow_fail "${TIMEOUT_SERVICE}" "导入 Dashboard Schema" bash -c "psql -h 127.0.0.1 -U '${DB_USER}' -d '${DB_NAME}' -f '${schema_file}'" || warn "Schema 导入失败，请手动运行：psql -h 127.0.0.1 -U ${DB_USER} -d ${DB_NAME} -f ${schema_file}"
+}
+fix_dashboard_owner() {
+    if ! command -v psql >/dev/null 2>&1; then
+        return
+    fi
+    # 仅在已提供 postgres 密码时尝试，否则跳过以避免交互
+    local pg_super_pwd="${POSTGRES_PASSWORD:-}"
+    if [[ -z "${pg_super_pwd}" && -f "${SECRETS_DIR}/postgres_password" ]]; then
+        pg_super_pwd="$(cat "${SECRETS_DIR}/postgres_password" 2>/dev/null || true)"
+    fi
+    if [[ -z "${pg_super_pwd}" ]]; then
+        warn "未提供 POSTGRES_PASSWORD，跳过 owner 修复（若需消除 must be owner，请以 postgres 手动 ALTER OWNER）。"
+        return
+    fi
+    with_timeout_allow_fail "${TIMEOUT_SERVICE}" "调整 dashboard schema owner" bash -c "
+export PGPASSWORD='${pg_super_pwd}'
+set -e
+psql -h 127.0.0.1 -U postgres -d '${DB_NAME}' -v ON_ERROR_STOP=1 -c \"ALTER SCHEMA dashboard OWNER TO ${DB_USER};\" || true
+tables=\$(psql -h 127.0.0.1 -U postgres -d '${DB_NAME}' -Atc \"SELECT tablename FROM pg_tables WHERE schemaname='dashboard';\" || true)
+for t in \$tables; do
+  psql -h 127.0.0.1 -U postgres -d '${DB_NAME}' -v ON_ERROR_STOP=1 -c \"ALTER TABLE dashboard.\\\"\$t\\\" OWNER TO ${DB_USER};\" || true
+done
+" || warn "dashboard schema owner 调整失败，可手动执行：ALTER SCHEMA/ALTER TABLE OWNER TO ${DB_USER}"
+}
+
+generate_log_config() {
+    cat > "${LOG_CONFIG_PATH}" <<EOF
+version: 1
+formatters:
+  precise:
+    format: '%(asctime)s [%(levelname)s] %(name)s - %(message)s'
+handlers:
+  file:
+    class: logging.handlers.TimedRotatingFileHandler
+    formatter: precise
+    filename: ${DATA_DIR}/logs/homeserver.log
+    when: midnight
+    backupCount: 3
+    encoding: utf8
+  console:
+    class: logging.StreamHandler
+    formatter: precise
+root:
+  level: INFO
+  handlers: [file, console]
+loggers:
+  synapse:
+    level: INFO
+    handlers: [file, console]
+    propagate: false
+EOF
+    info "已生成日志配置：${LOG_CONFIG_PATH}"
+}
+
+prepare_configs() {
+    section "生成本地配置（使用内部 Postgres/Redis，完全内网监听）"
+    mkdir -p "${DATA_DIR}" "${DATA_DIR}/media_store" "${DATA_DIR}/logs"
+    generate_log_config
+    local bind_addresses="['127.0.0.1']"
+    if [[ "${BIND_ALL_INTERFACES}" == "1" ]]; then
+        bind_addresses="['0.0.0.0']"
+        warn "BIND_ALL_INTERFACES=1，Synapse 将监听 0.0.0.0，请确保仅在受信网络或已加防火墙的环境使用。"
+    elif [[ -n "${LAN_IP}" && "${LAN_IP}" != "127.0.0.1" ]]; then
+        bind_addresses="['127.0.0.1','${LAN_IP}']"
+        info "已将 Synapse 绑定到 127.0.0.1 与 ${LAN_IP}，供局域网访问。"
+    fi
+    cat > "${CONFIG_PATH}" <<EOF
+server_name: "${SERVER_NAME_VALUE}"
+public_baseurl: "${PUBLIC_BASEURL_VALUE}"
+pid_file: "${SYNAPSE_PID_FILE}"
+listeners:
+  - port: 8008
+    tls: false
+    bind_addresses: ${bind_addresses}
+    type: http
+    resources:
+      - names: [client, federation]
+database:
+  name: psycopg2
+  args:
+    user: "${DB_USER}"
+    password: "${DB_PASSWORD}"
+    database: "${DB_NAME}"
+    host: "127.0.0.1"
+    port: 5432
+log_config: "${LOG_CONFIG_PATH}"
+media_store_path: "${DATA_DIR}/media_store"
+registration_shared_secret: "${REGISTRATION_SECRET}"
+macaroon_secret_key: "${MACAROON_SECRET_KEY}"
+form_secret: "${FORM_SECRET}"
+signing_key_path: "${SIGNING_KEY_PATH}"
+report_stats: false
+suppress_key_server_warning: true
+trusted_key_servers:
+  - server_name: "matrix.org"
+trusted_third_party_id_servers: []
+EOF
+    info "已生成 Synapse 配置：${CONFIG_PATH}"
+}
+prepare_cloudflare_config() {
     if [[ -f "${CF_CONFIG}" ]]; then
         info "使用 Cloudflare 隧道配置：${CF_CONFIG}"
-    else
-        if [[ -f "${CF_CONFIG_FALLBACK}" ]]; then
-            CF_CONFIG="${CF_CONFIG_FALLBACK}"
-            warn "Cloudflare 配置缺失，使用仓库内的 cloudflared-config.yaml（隧道 ID: ${CF_TUNNEL_ID}）。"
-        else
-            warn "未找到 Cloudflare 隧道配置，跳过自动启动。"
-        fi
+        return
     fi
+    if [[ -f "${CF_CONFIG_FALLBACK}" ]]; then
+        CF_CONFIG="${CF_CONFIG_FALLBACK}"
+        warn "Cloudflare 配置缺失，使用仓库内的 cloudflared-config.yaml（隧道 ID: ${CF_TUNNEL_ID}）。"
+    else
+        warn "未找到 Cloudflare 隧道配置，跳过自动启动。"
+    fi
+}
+
+render_dashboard_env() {
+    section "生成 Dashboard 后端环境文件"
+    mkdir -p "${BACKEND_DIR}"
+    local lan_host="${LAN_IP:-127.0.0.1}"
+    local public_base="${PUBLIC_BASEURL_VALUE%/}"
+    local internal_synapse="${SYNAPSE_INTERNAL_BASE_URL:-http://${lan_host}:8008}"
+    if [[ -z "${internal_synapse}" ]]; then
+        internal_synapse="http://${lan_host}:8008"
+    fi
+    local synapse_base="${internal_synapse%/}"
+    local synapse_admin_base="${synapse_base}/_synapse/admin/v2"
+    local cors_local_http="http://127.0.0.1:${FRONTEND_PORT}"
+    local cors_lan_http="http://${LAN_IP}:${FRONTEND_PORT}"
+    local cors_origins="${cors_local_http},${cors_lan_http}"
+    if [[ -n "${public_base}" ]]; then
+        cors_origins="${cors_origins},${public_base}"
+    fi
+    cat > "${BACKEND_ENV_PATH}" <<EOF
+NODE_ENV=production
+PORT=${BACKEND_PORT}
+DASHBOARD_HOST=0.0.0.0
+LOG_LEVEL=info
+CORS_ORIGINS=${cors_origins}
+JWT_SECRET=${JWT_SECRET}
+JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
+BOT_API_SECRET=${BOT_API_SECRET}
+BOT_SERVICE_BASE_URL=http://127.0.0.1:${BOT_PORT}
+JWT_ACCESS_TTL_SECONDS=900
+JWT_REFRESH_TTL_SECONDS=604800
+DASHBOARD_CACHE_TTL_SECONDS=300
+ENABLE_MINIO_HEALTH=${ENABLE_MINIO_HEALTH}
+MINIO_HEALTH_ENDPOINT=${MINIO_HEALTH_ENDPOINT}
+REDIS_HOST=127.0.0.1
+REDIS_PORT=6379
+REDIS_PASSWORD=
+REDIS_USER_EVENTS_CHANNEL=dashboard.user.invalidate
+DB_HOST=127.0.0.1
+DB_PORT=5432
+DB_NAME=${DB_NAME}
+DB_USER=${DB_USER}
+DB_PASSWORD=${DB_PASSWORD}
+SYNAPSE_BASE_URL=${synapse_base}
+SYNAPSE_ADMIN_BASE_URL=${synapse_admin_base}
+SYNAPSE_SERVER_NAME=${SERVER_NAME_VALUE}
+EOF
+    info "已生成 ${BACKEND_ENV_PATH}"
+}
+
+render_frontend_env() {
+    section "生成 Dashboard 前端环境文件"
+    mkdir -p "${FRONTEND_DIR}"
+    local lan_host="${LAN_IP:-127.0.0.1}"
+    local default_backend_base="http://${lan_host}:${BACKEND_PORT}"
+    local resolved_base="${FRONTEND_API_BASE_URL:-${default_backend_base}}"
+    [[ -z "${resolved_base}" ]] && resolved_base="${default_backend_base}"
+    local api_base="${resolved_base%/}"
+    local api_url="${api_base}/api/v1"
+    cat > "${FRONTEND_ENV_PATH}" <<EOF
+VITE_API_URL=${api_url}
+VITE_API_BASE_URL=${api_url}
+EOF
+    info "已生成 ${FRONTEND_ENV_PATH}"
+}
+
+render_bot_env() {
+    section "生成 Bot 环境文件"
+    mkdir -p "${BOT_DIR}/data"
+    local default_bot_user="@appeal_bot:${SERVER_NAME_VALUE}"
+    local lan_host="${LAN_IP:-127.0.0.1}"
+    local synapse_base_default="http://${lan_host}:8008"
+    local synapse_base="${SYNAPSE_INTERNAL_BASE_URL:-${synapse_base_default}}"
+    [[ -z "${synapse_base}" ]] && synapse_base="${synapse_base_default}"
+    synapse_base="${synapse_base%/}"
+    local bot_dashboard_default="http://${lan_host}:${BACKEND_PORT}"
+    local api_base="${BOT_API_BASE_URL:-${bot_dashboard_default}}"
+    [[ -z "${api_base}" ]] && api_base="${bot_dashboard_default}"
+    api_base="${api_base%/}"
+    read_bot_env_var() {
+        local key="$1" default_value="$2"
+        if [[ -f "${BOT_ENV_PATH}" ]]; then
+            local line
+            line="$(grep -E "^${key}=" "${BOT_ENV_PATH}" | tail -n1 || true)"
+            if [[ -n "${line}" ]]; then
+                echo "${line#*=}"
+                return
+            fi
+        fi
+        echo "${default_value}"
+    }
+    local bot_username bot_password bot_access_token bot_display_name bot_storage_path bot_admin_room_id cors_origins
+    bot_username="${MATRIX_BOT_USERNAME:-$(read_bot_env_var "MATRIX_BOT_USERNAME" "${default_bot_user}")}"
+    bot_password="${MATRIX_BOT_PASSWORD:-$(read_bot_env_var "MATRIX_BOT_PASSWORD" "change-me")}"
+    bot_access_token="${MATRIX_BOT_ACCESS_TOKEN:-$(read_bot_env_var "MATRIX_BOT_ACCESS_TOKEN" "")}"
+    bot_display_name="$(read_bot_env_var "MATRIX_BOT_DISPLAY_NAME" "申诉助理")"
+    bot_storage_path="$(read_bot_env_var "MATRIX_BOT_STORAGE_PATH" "${BOT_DIR}/data/matrix-bot.json")"
+    bot_admin_room_id="${BOT_ADMIN_ROOM_ID:-$(read_bot_env_var "BOT_ADMIN_ROOM_ID" "!adminRoomId:${SERVER_NAME_VALUE}")}"
+    cors_origins="$(read_bot_env_var "CORS_ORIGINS" "http://127.0.0.1:${BACKEND_PORT},http://${LAN_IP}:${BACKEND_PORT}")"
+    local shadow_room_prefix shadow_room_name_prefix shadow_room_topic_template
+    shadow_room_prefix="$(read_bot_env_var "SHADOW_ROOM_PREFIX" "shadow_")"
+    shadow_room_name_prefix="$(read_bot_env_var "SHADOW_ROOM_NAME_PREFIX" "频道 | ")"
+    shadow_room_topic_template="$(read_bot_env_var "SHADOW_ROOM_TOPIC_TEMPLATE" "频道 %key% 的系统广播")"
+    cat > "${BOT_ENV_PATH}" <<EOF
+NODE_ENV=production
+PORT=${BOT_PORT}
+HOST=0.0.0.0
+
+# Matrix Bot 配置（请改为真实账号/访问令牌）
+MATRIX_BOT_USERNAME=${bot_username}
+MATRIX_BOT_PASSWORD=${bot_password}
+# 可选：提供访问令牌后可留空密码
+MATRIX_BOT_ACCESS_TOKEN=${bot_access_token}
+MATRIX_BOT_HOMESERVER=${synapse_base}
+MATRIX_BOT_DISPLAY_NAME=${bot_display_name}
+MATRIX_BOT_STORAGE_PATH=${bot_storage_path}
+
+# Dashboard API & 安全
+DASHBOARD_API_BASE_URL=${api_base}
+BOT_API_SECRET=${BOT_API_SECRET}
+JWT_SECRET=${JWT_SECRET}
+CORS_ORIGINS=${cors_origins}
+SHADOW_ROOM_PREFIX=${shadow_room_prefix}
+SHADOW_ROOM_NAME_PREFIX=${shadow_room_name_prefix}
+SHADOW_ROOM_TOPIC_TEMPLATE=${shadow_room_topic_template}
+
+# 数据库/Redis
+DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@127.0.0.1:5432/${DB_NAME}
+DATABASE_SSL=false
+REDIS_URL=redis://127.0.0.1:6379
+
+# 其他
+BOT_ADMIN_ROOM_ID=${bot_admin_room_id}
+LOG_LEVEL=info
+LOG_FORMAT=json
+EOF
+    info "已生成 ${BOT_ENV_PATH}（保留已有的 MATRIX_BOT_* 值，启动前请确保凭证已填充）"
 }
 
 install_python_stack() {
@@ -476,24 +781,25 @@ generate_signing_key() {
 
 start_synapse() {
     section "启动 Matrix Synapse"
+    local synapse_running=0
     if curl -fsS --max-time "${TIMEOUT_HEALTH}" "http://127.0.0.1:8008/_matrix/client/versions" >/dev/null 2>&1; then
-        info "Synapse 已在运行，无需重复启动。"
-        return
+        synapse_running=1
     fi
-    local started=false
-    if [[ "${USING_LOCAL_CONFIG}" != "true" ]] && command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files | grep -q "^matrix-synapse.service"; then
-        if with_timeout_allow_fail "${TIMEOUT_SYNAPSE_START}" "systemctl restart matrix-synapse" bash -c "maybe_sudo systemctl restart matrix-synapse"; then
-            started=true
+    if [[ "${synapse_running}" -eq 1 ]]; then
+        if [[ "${FORCE_RESTART_SERVICES}" == "1" ]]; then
+            graceful_stop_pid "${SYNAPSE_PID_FILE}" "Synapse"
+            sleep 2
         else
-            warn "systemctl 启动失败，尝试直接以 poetry 启动。"
+            info "Synapse 已在运行，无需重复启动。"
+            return
         fi
     fi
-    if [[ "${started}" != true ]]; then
-        with_timeout "${TIMEOUT_SYNAPSE_START}" "启动 Synapse (poetry)" bash -c "cd '${BASE_DIR}' && poetry run python -m synapse.app.homeserver --config-path '${CONFIG_PATH}' --daemonize"
-    fi
+    stop_stale_pid "${SYNAPSE_PID_FILE}" "Synapse" || true
+    check_port_free 8008 "Synapse" || return
+    with_timeout "${TIMEOUT_SYNAPSE_START}" "启动 Synapse (poetry)" bash -c "cd '${BASE_DIR}' && poetry run python -m synapse.app.homeserver --config-path '${CONFIG_PATH}' --daemonize"
     sleep 3
     if ! curl -fsS --max-time "${TIMEOUT_HEALTH}" "http://127.0.0.1:8008/_matrix/client/versions" >/dev/null 2>&1; then
-        warn "Synapse 健康检查失败，可查看 /var/log/matrix-synapse 或 ${LOG_FILE}。"
+        warn "Synapse 健康检查失败，可查看 ${DATA_DIR}/logs/homeserver.log 或 ${LOG_FILE}。"
     else
         info "Synapse 已就绪：http://127.0.0.1:8008/_matrix/client/versions"
     fi
@@ -505,23 +811,40 @@ start_dashboard_backend() {
         warn "未找到 ${BACKEND_DIR}，跳过后端启动。"
         return
     fi
+    render_dashboard_env
+    local backend_running=0
     if curl -fsS --max-time "${TIMEOUT_HEALTH}" "http://127.0.0.1:${BACKEND_PORT}/health/ready" >/dev/null 2>&1 || \
        curl -fsS --max-time "${TIMEOUT_HEALTH}" "http://${LAN_IP:-127.0.0.1}:${BACKEND_PORT}/health/ready" >/dev/null 2>&1; then
-        info "Dashboard 后端已在运行，无需重复启动。"
-        return
+        backend_running=1
     fi
-    if [[ ! -f "${BACKEND_DIR}/.env" && -f "${BASE_DIR}/config/dashboard.env.template" ]]; then
-        cp "${BASE_DIR}/config/dashboard.env.template" "${BACKEND_DIR}/.env"
-        warn "已生成后台 .env，请确认数据库/Redis/JWT 配置后重新运行。"
+    if [[ "${backend_running}" -eq 1 ]]; then
+        if [[ "${FORCE_RESTART_SERVICES}" == "1" ]]; then
+            graceful_stop_pid "${RUNTIME_DIR}/dashboard_backend.pid" "Dashboard 后端"
+            sleep 1
+        else
+            info "Dashboard 后端已在运行，无需重复启动。"
+            return
+        fi
     fi
+    stop_stale_pid "${RUNTIME_DIR}/dashboard_backend.pid" "Dashboard 后端" || true
+    check_port_free "${BACKEND_PORT}" "Dashboard 后端" || return
     with_timeout "${TIMEOUT_NPM_INSTALL}" "npm install (backend)" bash -c "cd '${BACKEND_DIR}' && npm install --no-progress"
+    with_timeout_allow_fail "${TIMEOUT_SERVICE}" "清理 dist (backend)" bash -c "cd '${BACKEND_DIR}' && rm -rf dist"
     with_timeout "${TIMEOUT_NPM_BUILD}" "npm run build (backend)" bash -c "cd '${BACKEND_DIR}' && npm run build"
-    with_timeout "${TIMEOUT_SERVICE}" "启动 Dashboard 后端" bash -c "cd '${BACKEND_DIR}' && PORT='${BACKEND_PORT}' DASHBOARD_HOST='0.0.0.0' npm run start:prod >>'${LOG_FILE}' 2>&1 & echo \$! > '${RUNTIME_DIR}/dashboard_backend.pid'"
+    # 迁移由脚本前置的 apply_dashboard_schema 完成，避免重复警告；如需二次迁移可手动执行 npm run db:migrate
+    local backend_start_cmd="PORT='${BACKEND_PORT}' DASHBOARD_HOST='0.0.0.0' npm run start:prod"
+    if [[ ! -d "${BACKEND_DIR}/dist" ]]; then
+        warn "未找到 dist，回退为 ts-node 直接启动（性能略低）。"
+        backend_start_cmd="PORT='${BACKEND_PORT}' DASHBOARD_HOST='0.0.0.0' npm run start"
+    fi
+    with_timeout "${TIMEOUT_SERVICE}" "启动 Dashboard 后端" bash -c "cd '${BACKEND_DIR}' && ${backend_start_cmd} >>'${LOG_FILE}' 2>&1 & echo \$! > '${RUNTIME_DIR}/dashboard_backend.pid'"
     sleep 2
     if curl -fsS --max-time "${TIMEOUT_HEALTH}" "http://127.0.0.1:${BACKEND_PORT}/health/ready" >/dev/null 2>&1; then
         info "Dashboard 后端已就绪：http://127.0.0.1:${BACKEND_PORT}/health/ready"
     else
         warn "后端健康检查失败，请检查 ${BACKEND_DIR}/.env、数据库/Redis 连接与端口占用。"
+        warn "后端最近日志片段："
+        tail -n 80 "${LOG_FILE}" | sed 's/^/[backend-log] /'
     fi
 }
 
@@ -531,12 +854,25 @@ start_dashboard_frontend() {
         warn "未找到 ${FRONTEND_DIR}，跳过前端启动。"
         return
     fi
+    render_frontend_env
+    local frontend_running=0
     if curl -fsS --max-time "${TIMEOUT_HEALTH}" "http://127.0.0.1:${FRONTEND_PORT}" >/dev/null 2>&1 || \
        curl -fsS --max-time "${TIMEOUT_HEALTH}" "http://${LAN_IP:-127.0.0.1}:${FRONTEND_PORT}" >/dev/null 2>&1; then
-        info "Dashboard 前端已在运行，无需重复启动。"
-        return
+        frontend_running=1
     fi
+    if [[ "${frontend_running}" -eq 1 ]]; then
+        if [[ "${FORCE_RESTART_SERVICES}" == "1" ]]; then
+            graceful_stop_pid "${RUNTIME_DIR}/dashboard_frontend.pid" "Dashboard 前端"
+            sleep 1
+        else
+            info "Dashboard 前端已在运行，无需重复启动。"
+            return
+        fi
+    fi
+    stop_stale_pid "${RUNTIME_DIR}/dashboard_frontend.pid" "Dashboard 前端" || true
+    check_port_free "${FRONTEND_PORT}" "Dashboard 前端" || return
     with_timeout "${TIMEOUT_NPM_INSTALL}" "npm install (frontend)" bash -c "cd '${FRONTEND_DIR}' && npm install --no-progress"
+    with_timeout_allow_fail "${TIMEOUT_SERVICE}" "清理 dist (frontend)" bash -c "cd '${FRONTEND_DIR}' && rm -rf dist"
     with_timeout "${TIMEOUT_NPM_BUILD}" "npm run build (frontend)" bash -c "cd '${FRONTEND_DIR}' && npm run build"
     with_timeout "${TIMEOUT_SERVICE}" "启动 Dashboard 前端" bash -c "cd '${FRONTEND_DIR}' && npm run preview -- --host 0.0.0.0 --port '${FRONTEND_PORT}' >>'${LOG_FILE}' 2>&1 & echo \$! > '${RUNTIME_DIR}/dashboard_frontend.pid'"
     sleep 2
@@ -544,6 +880,53 @@ start_dashboard_frontend() {
         info "Dashboard 前端预览就绪：http://127.0.0.1:${FRONTEND_PORT}"
     else
         warn "前端未通过健康检查，检查端口占用或 VITE_API_URL 配置。"
+        warn "前端最近日志片段："
+        tail -n 80 "${LOG_FILE}" | sed 's/^/[frontend-log] /'
+    fi
+}
+
+start_dashboard_bot() {
+    section "启动 Matrix Dashboard Bot"
+    if [[ ! -d "${BOT_DIR}" ]]; then
+        warn "未找到 ${BOT_DIR}，跳过 Bot 启动。"
+        return
+    fi
+    render_bot_env
+    local bot_pwd bot_token bot_admin_room
+    bot_pwd="$(grep -E "^MATRIX_BOT_PASSWORD=" "${BOT_ENV_PATH}" | tail -n1 | cut -d= -f2- || true)"
+    bot_token="$(grep -E "^MATRIX_BOT_ACCESS_TOKEN=" "${BOT_ENV_PATH}" | tail -n1 | cut -d= -f2- || true)"
+    bot_admin_room="$(grep -E "^BOT_ADMIN_ROOM_ID=" "${BOT_ENV_PATH}" | tail -n1 | cut -d= -f2- || true)"
+    if { [[ -z "${bot_pwd}" || "${bot_pwd}" == "change-me" ]] && [[ -z "${bot_token}" ]]; } || [[ "${bot_admin_room}" == "!adminRoomId:${SERVER_NAME_VALUE}" || -z "${bot_admin_room}" ]]; then
+        warn "Bot 凭证仍为占位符或缺失，已跳过启动。请在 ${BOT_ENV_PATH} 中填写 MATRIX_BOT_PASSWORD 或 MATRIX_BOT_ACCESS_TOKEN，以及真实 BOT_ADMIN_ROOM_ID 后重试。"
+        return
+    fi
+    local bot_running=0
+    if curl -fsS --max-time "${TIMEOUT_HEALTH}" "http://127.0.0.1:${BOT_PORT}/health" >/dev/null 2>&1; then
+        bot_running=1
+    fi
+    if [[ "${bot_running}" -eq 1 ]]; then
+        if [[ "${FORCE_RESTART_SERVICES}" == "1" ]]; then
+            graceful_stop_pid "${RUNTIME_DIR}/dashboard_bot.pid" "Dashboard Bot"
+            sleep 1
+        else
+            info "Dashboard Bot 已在运行，无需重复启动。"
+            return
+        fi
+    fi
+    stop_stale_pid "${RUNTIME_DIR}/dashboard_bot.pid" "Dashboard Bot" || true
+    check_port_free "${BOT_PORT}" "Dashboard Bot" || {
+        warn "Bot 端口 ${BOT_PORT} 被占用，跳过启动（不阻断后续总结）。"
+        return
+    }
+    with_timeout "${TIMEOUT_NPM_INSTALL}" "npm install (bot)" bash -c "cd '${BOT_DIR}' && npm install --no-progress"
+    with_timeout "${TIMEOUT_NPM_BUILD}" "npm run build (bot)" bash -c "cd '${BOT_DIR}' && npm run build"
+    with_timeout "${TIMEOUT_SERVICE}" "启动 Bot" bash -c "cd '${BOT_DIR}' && PORT='${BOT_PORT}' HOST='0.0.0.0' npm run start >>'${LOG_FILE}' 2>&1 & echo \$! > '${RUNTIME_DIR}/dashboard_bot.pid'"
+    sleep 2
+    if curl -fsS --max-time "${TIMEOUT_HEALTH}" "http://127.0.0.1:${BOT_PORT}/health" >/dev/null 2>&1; then
+        info "Bot 健康检查通过：http://127.0.0.1:${BOT_PORT}/health"
+    else
+        warn "Bot 健康检查未通过，请确认 Matrix 账号/密码或 access token 正确。"
+        warn "如需跳过 Bot，可忽略此提示；若需启动，请填写 ${BOT_ENV_PATH} 中的 MATRIX_BOT_PASSWORD 或 MATRIX_BOT_ACCESS_TOKEN 并重跑脚本。"
     fi
 }
 
@@ -575,6 +958,9 @@ health_report() {
     curl -fsS --max-time "${TIMEOUT_HEALTH}" "http://127.0.0.1:8008/_matrix/client/versions" >/dev/null 2>&1 && info "Synapse API ✓" || warn "Synapse API ✗"
     curl -fsS --max-time "${TIMEOUT_HEALTH}" "http://127.0.0.1:${BACKEND_PORT}/health/ready" >/dev/null 2>&1 && info "Dashboard 后端 ✓" || warn "Dashboard 后端 ✗"
     curl -fsS --max-time "${TIMEOUT_HEALTH}" "http://127.0.0.1:${FRONTEND_PORT}" >/dev/null 2>&1 && info "Dashboard 前端 ✓" || warn "Dashboard 前端 ✗"
+    if [[ -d "${BOT_DIR}" && -f "${BOT_ENV_PATH}" ]]; then
+        curl -fsS --max-time "${TIMEOUT_HEALTH}" "http://127.0.0.1:${BOT_PORT}/health" >/dev/null 2>&1 && info "Matrix Bot ✓" || warn "Matrix Bot ✗（如未配置凭证可忽略）"
+    fi
     if command -v cloudflared >/dev/null 2>&1; then
         with_timeout_allow_fail "${TIMEOUT_HEALTH}" "检查 cloudflared 状态" cloudflared tunnel info "${CF_TUNNEL_ID}" >/dev/null 2>&1 && info "Cloudflare 隧道 ✓" || warn "Cloudflare 隧道 ✗"
     fi
@@ -589,14 +975,18 @@ next_steps() {
     info "访问内网 (局域网): Synapse http://${LAN_IP:-127.0.0.1}:8008/_matrix/client/versions"
     info "访问内网 (局域网): Dashboard 后端 http://${LAN_IP:-127.0.0.1}:${BACKEND_PORT}/health/ready"
     info "访问内网 (局域网): Dashboard 前端 http://${LAN_IP:-127.0.0.1}:${FRONTEND_PORT}"
-    info "公网（需 Cloudflare 配置）：https://${SERVER_NAME_VALUE}/_matrix/client/versions 与 https://admin.${SERVER_NAME_VALUE}/health/ready"
     info "配置文件：${CONFIG_PATH}"
     info "日志配置：${LOG_CONFIG_PATH}"
-    info "密钥/密码文件：${SECRETS_DIR}（db_password / registration_secret），签名密钥：${SIGNING_KEY_PATH}"
+    info "密钥/密码文件：${SECRETS_DIR}（db_password / registration_secret / jwt_secret / bot_api_secret），签名密钥：${SIGNING_KEY_PATH}"
     info "日志文件：${LOG_FILE}"
-    warn "Dashboard 测试账号：Email matrix.admin@example.com / Password admin123"
+    warn "测试步骤（可逐条执行）:"
+    warn "  1) curl -fsS http://127.0.0.1:8008/_matrix/client/versions"
+    warn "  2) curl -fsS http://127.0.0.1:${BACKEND_PORT}/health/ready"
+    warn "  3) curl -fsS http://127.0.0.1:${BACKEND_PORT}/monitor/status | jq '.summary' (需 jq)"
+    warn "  4) 浏览器访问 http://127.0.0.1:${FRONTEND_PORT} 登录 Dashboard（首次请在后端 API 创建管理员）"
+    warn "  5) 如已配置 Matrix Bot 凭证：curl -fsS http://127.0.0.1:${BOT_PORT}/health"
     warn "如需停止后台进程，可执行："
-    warn "  kill \$(cat ${RUNTIME_DIR}/synapse.pid ${RUNTIME_DIR}/dashboard_backend.pid ${RUNTIME_DIR}/dashboard_frontend.pid ${RUNTIME_DIR}/cloudflared.pid 2>/dev/null) || true"
+    warn "  kill \$(cat ${RUNTIME_DIR}/synapse.pid ${RUNTIME_DIR}/dashboard_backend.pid ${RUNTIME_DIR}/dashboard_frontend.pid ${RUNTIME_DIR}/dashboard_bot.pid ${RUNTIME_DIR}/cloudflared.pid 2>/dev/null) || true"
 }
 
 main() {
@@ -610,13 +1000,21 @@ main() {
     prepare_directories
     ensure_postgres
     init_postgres_db
+    detect_server_name_from_db
     ensure_redis
+    apply_dashboard_schema
+    fix_dashboard_owner
     prepare_configs
+    prepare_cloudflare_config
+    render_dashboard_env
+    render_frontend_env
+    render_bot_env
     install_python_stack
     generate_signing_key
     start_synapse
     start_dashboard_backend
     start_dashboard_frontend
+    start_dashboard_bot
     start_cloudflare_tunnel
     health_report
     next_steps

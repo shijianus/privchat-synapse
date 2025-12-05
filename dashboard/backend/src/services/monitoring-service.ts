@@ -24,6 +24,11 @@ import {
 import { SystemService } from './system-service';
 
 const execFileAsync = promisify(execFile);
+const MINIO_HEALTH_ENDPOINT =
+  process.env.MINIO_HEALTH_ENDPOINT || 'http://127.0.0.1:9000/minio/health/live';
+const MINIO_HEALTH_ENABLED =
+  (process.env.ENABLE_MINIO_HEALTH || '').toLowerCase() === '1' ||
+  (process.env.ENABLE_MINIO_HEALTH || '').toLowerCase() === 'true';
 
 type CpuSample = {
   readonly idle: number;
@@ -464,7 +469,16 @@ export class MonitoringService {
   }
 
   private async checkMinio(): Promise<ServiceCheck> {
-    return this.checkHttpService('minio', 'http://127.0.0.1:9000/minio/health/live', 1000);
+    if (!MINIO_HEALTH_ENABLED || !MINIO_HEALTH_ENDPOINT) {
+      return {
+        name: 'minio',
+        status: 'up',
+        latencyMs: 0,
+        message: 'minio health check disabled',
+      };
+    }
+
+    return this.checkHttpService('minio', MINIO_HEALTH_ENDPOINT, 1000);
   }
 
   private async checkHttpService(

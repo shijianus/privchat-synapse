@@ -7,11 +7,13 @@ import morgan from 'morgan';
 
 import { config } from './config/env';
 import { AppealController } from './controllers/appeal-controller';
+import { AnnouncementController } from './controllers/announcement-controller';
 import { AuthController } from './controllers/auth-controller';
 import { BanController } from './controllers/ban-controller';
 import { MediaController } from './controllers/media-controller';
 import { MessageSyncController } from './controllers/message-sync-controller';
 import { RegistrationController } from './controllers/registration-controller';
+import { ReportController } from './controllers/report-controller';
 import { SystemController } from './controllers/system-controller';
 import { TwoFactorController } from './controllers/two-factor-controller';
 import { UserController } from './controllers/user-controller';
@@ -37,6 +39,9 @@ import { SystemService } from './services/system-service';
 import { TwoFactorService } from './services/two-factor-service';
 import { MonitoringService } from './services/monitoring-service';
 import { UserService } from './services/user-service';
+import { AnnouncementService } from './services/announcement-service';
+import { ReportService } from './services/report-service';
+import { BotBridgeService } from './services/bot-bridge-service';
 import { httpLogStream, logger } from './utils/logger';
 import { assertPortAvailable } from './utils/port-check';
 
@@ -55,11 +60,13 @@ const startServer = async (): Promise<void> => {
 
   const operationLogService = new OperationLogService(databaseService);
   const synapseAdminService = new SynapseAdminService();
+  const botBridgeService = new BotBridgeService();
   const userService = new UserService(
     databaseService,
     redisService,
     operationLogService,
-    synapseAdminService
+    synapseAdminService,
+    botBridgeService
   );
   const appealService = new AppealService(databaseService, userService, operationLogService);
   const banService = new BanService(
@@ -77,9 +84,15 @@ const startServer = async (): Promise<void> => {
     userService
   );
   const messageSyncService = new MessageSyncService(databaseService, operationLogService);
-  const registrationService = new RegistrationService(databaseService, operationLogService);
+  const registrationService = new RegistrationService(
+    databaseService,
+    operationLogService,
+    botBridgeService
+  );
   const systemService = new SystemService(databaseService, redisService, operationLogService);
   const monitoringService = new MonitoringService(databaseService, redisService, systemService);
+  const announcementService = new AnnouncementService(operationLogService);
+  const reportService = new ReportService(databaseService, operationLogService);
 
   const userController = new UserController(userService, banService);
   const banController = new BanController(banService);
@@ -90,6 +103,8 @@ const startServer = async (): Promise<void> => {
   const systemController = new SystemController(systemService);
   const twoFactorController = new TwoFactorController(twoFactorService);
   const messageSyncController = new MessageSyncController(messageSyncService);
+  const announcementController = new AnnouncementController(announcementService);
+  const reportController = new ReportController(reportService);
 
   const app = express();
   const limiter = rateLimit({
@@ -121,7 +136,7 @@ const startServer = async (): Promise<void> => {
   app.use('/health', createHealthRoutes(monitoringService));
   app.use('/api/v1/2fa', createTwoFactorRoutes(twoFactorController));
   app.use('/api/v1/auth', createAuthRoutes(authController));
-  app.use('/api/v1/bot', createBotRoutes({ appealController, twoFactorController }));
+  app.use('/api/v1/bot', createBotRoutes({ appealController, twoFactorController, reportController }));
   app.use(
     '/api/v1',
     authMiddleware,
@@ -133,6 +148,8 @@ const startServer = async (): Promise<void> => {
       registrationController,
       systemController,
       messageSyncController,
+      announcementController,
+      reportController,
     })
   );
 

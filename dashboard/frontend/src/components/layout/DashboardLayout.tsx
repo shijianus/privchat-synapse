@@ -8,6 +8,8 @@ const navigationItems = [
   { label: 'Users', to: '/users' },
   { label: 'Bans', to: '/bans' },
   { label: 'Appeals', to: '/appeals' },
+  { label: 'Announcements', to: '/announcements' },
+  { label: 'Reports', to: '/reports' },
   { label: 'Logs', to: '/logs' },
   { label: 'Settings', to: '/settings' },
 ];

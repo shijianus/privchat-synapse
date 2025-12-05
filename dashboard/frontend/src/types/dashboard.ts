@@ -58,7 +58,7 @@ export interface OperationLog {
   targetSynapseUserId?: string;
   operation: string;
   resource: string;
-  details: Record<string, any>;
+  details: Record<string, unknown>;
   ipAddress?: string;
   userAgent?: string;
   createdAt: string;
@@ -157,4 +157,71 @@ export interface UserProvisionResponse {
   riskLevel: RiskLevel;
   initialPassword?: string;
   createdAt: string;
+}
+
+export type RegistrationApplicationStatus = 'pending' | 'approved' | 'rejected';
+
+export type RegistrationBlacklistType =
+  | 'username'
+  | 'email'
+  | 'msisdn'
+  | 'ip_address'
+  | 'device_fingerprint';
+
+export interface RegistrationApplication {
+  id: number;
+  username: string;
+  email: string;
+  msisdn?: string | null;
+  ipAddress: string;
+  deviceFingerprint?: string | null;
+  status: RegistrationApplicationStatus;
+  reviewer?: string | null;
+  reviewerNote?: string | null;
+  synapseUserId?: string | null;
+  decidedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RegistrationApplicationFilters {
+  status?: RegistrationApplicationStatus | 'all';
+  keyword?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface RegistrationApprovalPayload {
+  reviewerNote?: string | null;
+  synapseUserId?: string | null;
+}
+
+export interface RegistrationRejectionPayload {
+  reviewerNote: string;
+  blacklistTypes?: RegistrationBlacklistType[];
+  blacklistExpiresAt?: string | null;
+}
+
+export interface RegistrationBlacklistEntry {
+  id: number;
+  type: RegistrationBlacklistType;
+  value: string;
+  reason?: string | null;
+  expiresAt?: string | null;
+  createdAt: string;
+  createdBy: string;
+}
+
+export interface RegistrationBlacklistFilters {
+  type?: RegistrationBlacklistType | 'all';
+  value?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface CreateBlacklistEntryRequest {
+  type: RegistrationBlacklistType;
+  value: string;
+  reason?: string;
+  expiresAt?: string | null;
 }

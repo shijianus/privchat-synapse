@@ -15,6 +15,13 @@ import type {
   ApiError,
   UserProvisionRequest,
   UserProvisionResponse,
+  RegistrationApplication,
+  RegistrationApplicationFilters,
+  RegistrationApprovalPayload,
+  RegistrationRejectionPayload,
+  RegistrationBlacklistEntry,
+  RegistrationBlacklistFilters,
+  CreateBlacklistEntryRequest,
 } from '../types';
 
 // API Configuration
@@ -60,7 +67,7 @@ apiClient.interceptors.response.use(
     };
 
     if (error.response?.data) {
-      const responseData = error.response.data as any;
+      const responseData = error.response.data as { message?: string; code?: string };
       apiError.message = responseData.message || apiError.message;
       apiError.code = responseData.code || apiError.code;
     }
@@ -159,6 +166,114 @@ export class ApiService {
 
   async deleteUser(id: string): Promise<void> {
     await this.delete<void>(`/users/${id}`);
+  }
+
+  // Registration management
+  async getRegistrationApplications(
+    filters?: RegistrationApplicationFilters
+  ): Promise<RegistrationApplication[]> {
+    const params = new URLSearchParams();
+
+    if (filters?.status && filters.status !== 'all') {
+      params.append('status', filters.status);
+    }
+
+    if (filters?.keyword) {
+      params.append('keyword', filters.keyword);
+    }
+
+    if (typeof filters?.limit === 'number') {
+      params.append('limit', filters.limit.toString());
+    }
+
+    if (typeof filters?.offset === 'number') {
+      params.append('offset', filters.offset.toString());
+    }
+
+    const query = params.toString();
+    const endpoint = query ? `/registrations?${query}` : '/registrations';
+    return this.get<RegistrationApplication[]>(endpoint);
+  }
+
+  async approveRegistration(
+    applicationId: number,
+    payload: RegistrationApprovalPayload
+  ): Promise<RegistrationApplication> {
+    return this.post<RegistrationApplication>(`/registrations/${applicationId}/approve`, payload);
+  }
+
+  async rejectRegistration(
+    applicationId: number,
+    payload: RegistrationRejectionPayload
+  ): Promise<RegistrationApplication> {
+    return this.post<RegistrationApplication>(`/registrations/${applicationId}/reject`, payload);
+  }
+
+  // Announcements
+  async broadcastAnnouncement(payload: {
+    channelKey: string;
+    title: string;
+    content: string;
+    html?: string;
+    audience: string[];
+  }): Promise<{ delivered: number; roomIds: string[] }> {
+    return this.post('/announcements/broadcast', payload);
+  }
+
+  // Reports (user complaints)
+  async listReports(params?: { limit?: number; offset?: number }): Promise<{
+    items: Array<{
+      id: string;
+      reporter: string;
+      target: string;
+      reason: string;
+      description?: string | null;
+      createdAt: string;
+    }>;
+    limit: number;
+    offset: number;
+  }> {
+    const search = new URLSearchParams();
+    if (params?.limit) search.append('limit', String(params.limit));
+    if (params?.offset) search.append('offset', String(params.offset));
+    const query = search.toString();
+    return this.get(query ? `/reports?${query}` : '/reports');
+  }
+
+  async getRegistrationBlacklist(
+    filters?: RegistrationBlacklistFilters
+  ): Promise<RegistrationBlacklistEntry[]> {
+    const params = new URLSearchParams();
+
+    if (filters?.type && filters.type !== 'all') {
+      params.append('type', filters.type);
+    }
+
+    if (filters?.value) {
+      params.append('value', filters.value);
+    }
+
+    if (typeof filters?.limit === 'number') {
+      params.append('limit', filters.limit.toString());
+    }
+
+    if (typeof filters?.offset === 'number') {
+      params.append('offset', filters.offset.toString());
+    }
+
+    const query = params.toString();
+    const endpoint = query ? `/blacklist?${query}` : '/blacklist';
+    return this.get<RegistrationBlacklistEntry[]>(endpoint);
+  }
+
+  async createRegistrationBlacklistEntry(
+    payload: CreateBlacklistEntryRequest
+  ): Promise<RegistrationBlacklistEntry> {
+    return this.post<RegistrationBlacklistEntry>('/blacklist', payload);
+  }
+
+  async deleteRegistrationBlacklistEntry(entryId: number): Promise<void> {
+    await this.delete<void>(`/blacklist/${entryId}`);
   }
 
   // Ban management endpoints

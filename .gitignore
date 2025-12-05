@@ -1,100 +1,219 @@
-# filename patterns
+# Private Chat Synapse .gitignore
+#
+# This file specifies intentionally untracked files that git should ignore.
+# Core project files are tracked by default.
+
+# === 编译产物和构建文件 ===
+# Python 编译文件
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Rust 编译产物
+# 二进制 / 动态库
+synapse/synapse_rust.abi3.so
+target/
+Cargo.lock
+
+# TypeScript 编译产物和缓存
+*.tsbuildinfo
+*.d.ts.map
+dashboard/backend/tsconfig.tsbuildinfo
+dashboard/frontend/dist/
+dashboard/frontend/build/
+dashboard/backend/dist/
+dashboard/backend/build/
+
+# === 运行时和临时文件 ===
+# 系统临时文件
 *~
 .*.swp
+.*.swo
 .#*
-*.deb
-*.egg
-*.egg-info
-*.lock
-*.py[cod]
-*.snap
-*.tac
-_trial_temp/
-_trial_temp*/
-/out
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
 .DS_Store
-__pycache__/
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
 
-# We do want poetry, cargo and flake lockfiles.
-!poetry.lock
-!Cargo.lock
-!flake.lock
+# 日志文件
+*.log
+*.log.*
+log.txt
+logs/
 
-# stuff that is likely to exist when you run a server locally
-/*.db
-/*.log
-/*.log.*
-/*.log.config
-/*.pid
-/.python-version
-/*.signing.key
-/env/
-/.venv*/
-/homeserver*.yaml
-/logs
-/media_store/
-/uploads
-/homeserver-config-overrides.d
-.runtime/
+# 运行时文件
+*.pid
+*.seed
+*.pid.lock
+coverage/
+.nyc_output
+.coverage
+htmlcov/
+.pytest_cache/
+.cache/
 
-# secrets and environment files
+# === 环境配置和敏感信息 ===
+# 环境变量文件（任意目录下 .env）
 .env
 .env.*
 !.env.example
-!.env.*.example
-/config/
-/cloudflared-config.yaml
-
-# locally generated TLS material
-/docker/nginx/ssl/*.pem
-/docker/nginx/ssl/*.key
-
-# local data and runtime artifacts
-*.db
-*.log
-*.log.*
-*.pid
-
-# For direnv users
-/.envrc
+.envrc
+.devenv/
 .direnv/
 
-# For nix/devenv users
-.devenv/
+# Claude 本地配置（全部视为本机私有）
+.claude/
+.claude/settings.local.json
+.claude/*.local.json
 
-# IDEs
-/.idea/
-/.ropeproject/
-/.vscode/
-/.zed/
+# 敏感文档文件（包含 tokens、密钥等）
+ADVICE.md
+ANALYSIS.md
+ANSWER.md
+DASHBOARD_DESIGN_PLANNING.md
+DASHBOARD_REQUEST.md
+DIARY.md
+LOG.md
+MEMORY.md
+REPORTS.md
+REQUEST.md
+RULES.md
+TODO.md
+SECRET.md
+TUTORIAL.md
 
-# build products
-!/.coveragerc
-/.coverage*
-/.mypy_cache/
-/.tox
-/.tox-pg-container
-/build/
-/coverage.*
-/dist/
-/docs/build/
-/dev-docs/_build/
-/htmlcov
-/pip-wheel-metadata/
+# 密钥和证书文件
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+secrets/
+.private/
 
-# docs
-book/
+# Synapse 配置和运行时
+homeserver*.yaml
+*.generated.yaml
+*.generated.yml
+log_config.generated.yaml
+media_store/
+uploads/
+.runtime/
+*.signing.key
 
-# complement
-/complement-*
-/main.tar.gz
+# === 开发工具和IDE配置 ===
+# IDE 配置
+.vscode/
+.idea/
+.atom/
+.brackets/
+.sublime-project
+.sublime-workspace
+*.code-workspace
 
-# rust
-/target/
-/synapse/*.so
+# 编辑器临时文件
+*.tmp
+*.temp
+*.bak
+*.backup
+*.orig
+*.rej
+*.old
 
-# Poetry will create a setup.py, which we don't want to include.
-/setup.py
+# === Node.js 和前端工具 ===
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.yarn-integrity
+lerna-debug.log*
 
-# Don't include users' poetry configs
-/poetry.toml
+# 前端构建工具
+.vite/
+.eslintcache
+.stylelintcache
+
+# === 数据库和存储 ===
+# 数据库文件
+*.db
+*.sqlite
+*.sqlite3
+
+# Dashboard bot 运行时数据（非种子 / 非固定数据）
+dashboard/bot/data/
+
+# === 测试和覆盖率 ===
+# 测试输出
+test-results/
+coverage/
+.coverage
+.nyc_output
+junit.xml
+
+# === 系统和运行时目录 ===
+# Python 虚拟环境
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# 运行时目录
+runtime/
+.run/
+.config/
+
+# === 项目特定的忽略规则 ===
+# 部署相关
+docker-compose.override.yml
+.dockerignore
+deploy/local/
+scripts/local/
+
+# 文档生成
+docs/_build/
+site/
+
+# 备份文件
+*.backup
+*.old
+
+# === 临时和缓存目录 ===
+# 系统缓存
+.cache/
+tmp/
+temp/
+

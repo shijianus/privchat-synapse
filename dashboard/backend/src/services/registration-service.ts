@@ -73,7 +73,8 @@ const mapBlacklist = (row: RegistrationBlacklistRow): RegistrationBlacklistEntry
 export class RegistrationService {
   constructor(
     private readonly databaseService: DatabaseService,
-    private readonly operationLogService: OperationLogService
+    private readonly operationLogService: OperationLogService,
+    private readonly botBridgeService: { ensureDirects: (users: string[], channelKey?: string) => Promise<void> }
   ) {}
 
   async listApplications(filters: RegistrationApplicationFilters): Promise<RegistrationApplication[]> {
@@ -196,6 +197,12 @@ export class RegistrationService {
 
     if (payload.synapseUserId) {
       await this.ensureUserProfile(payload.synapseUserId);
+      try {
+        await this.botBridgeService.ensureDirects([payload.synapseUserId], 'welcome');
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.warn('ensure bot DM (registration approve) failed:', (error as Error).message);
+      }
     }
 
     await this.operationLogService.record({

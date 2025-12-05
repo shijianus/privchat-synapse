@@ -6,8 +6,10 @@ import dotenv from 'dotenv';
 import { MatrixBotService } from './services/matrix-bot';
 import { AppealService } from './services/appeal-service';
 import { FriendVerificationService } from './services/friend-verification-service';
+import { DashboardApiService } from './services/dashboard-api-service';
 import { DatabaseService } from './services/database-service';
 import { RedisService } from './services/redis-service';
+import { ShadowBroadcastPayload } from './services/shadow-room-service';
 import { logger } from './utils/logger';
 import { config } from './config/env';
 
@@ -45,9 +47,11 @@ async function startBot(): Promise<void> {
     databaseService,
     redisService
   );
+  const dashboardApiService = new DashboardApiService();
   const matrixBot = new MatrixBotService(
     appealService,
     friendVerificationService,
+    dashboardApiService,
     redisService
   );
 
@@ -98,6 +102,63 @@ async function startBot(): Promise<void> {
       return { error: '处理失败' };
     }
   });
+
+  fastify.post(
+    '/webhooks/broadcast',
+    {
+      config: {
+        rateLimit: {
+          max: 10,
+          timeWindow: '1 minute',
+        },
+      },
+    },
+    async (request, reply) => {
+      try {
+        const authHeader = request.headers.authorization;
+        if (!authHeader || authHeader.replace('Bearer ', '').trim() !== config.botApiSecret) {
+          reply.code(401);
+          return { error: 'unauthorized' };
+        }
+
+        const webhook = request.body as ShadowBroadcastPayload;
+        if (!webhook?.channelKey || !webhook?.title || !webhook?.content || !webhook?.audience) {
+          reply.code(400);
+          return { error: 'channelKey、title、content、audience 均为必填' };
+        }
+        const result = await matrixBot.handleBroadcastWebhook(webhook);
+        return { status: 'processed', roomIds: result.roomIds, delivered: result.delivered };
+      } catch (error) {
+        logger.error('处理广播 webhook 失败:', error);
+        reply.code(500);
+        return { error: '处理失败' };
+      }
+    }
+  );
+
+  fastify.post(
+    '/webhooks/ensure_dm',
+    async (request, reply) => {
+      try {
+        const authHeader = request.headers.authorization;
+        if (!authHeader || authHeader.replace('Bearer ', '').trim() !== config.botApiSecret) {
+          reply.code(401);
+          return { error: 'unauthorized' };
+        }
+        const body = request.body as { audience?: string[]; channelKey?: string };
+        if (!body?.audience || body.audience.length === 0) {
+          reply.code(400);
+          return { error: 'audience 不能为空' };
+        }
+        const result = await matrixBot.ensureDirects(body.audience, body.channelKey);
+        return { status: 'processed', roomIds: result };
+      } catch (error) {
+        logger.error('处理 ensure_dm webhook 失败:', error);
+        reply.code(500);
+        return { error: '处理失败' };
+      }
+    }
+  );
 
   // 启动 Matrix Bot
   await matrixBot.start();

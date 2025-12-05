@@ -1,4 +1,4 @@
-import { Pool, PoolClient } from 'pg';
+import { Pool, PoolClient, QueryResultRow } from 'pg';
 import { logger } from '../utils/logger';
 import { config } from '../config/env';
 
@@ -47,10 +47,10 @@ export class DatabaseService {
   /**
    * 执行查询
    */
-  async query(text: string, params?: any[]): Promise<any> {
+  async query<T extends QueryResultRow = any>(text: string, params?: any[]): Promise<{ rows: T[] }> {
     const start = Date.now();
     try {
-      const result = await this.pool.query(text, params);
+      const result = await this.pool.query<T>(text, params);
       const duration = Date.now() - start;
 
       if (config.logLevel === 'debug') {
@@ -59,7 +59,8 @@ export class DatabaseService {
 
       return result;
     } catch (error) {
-      logger.error('数据库查询失败: %s', error.message);
+      const message = error instanceof Error ? error.message : 'unknown error';
+      logger.error('数据库查询失败: %s', message);
       throw error;
     }
   }

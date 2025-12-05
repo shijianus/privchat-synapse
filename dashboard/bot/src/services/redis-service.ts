@@ -8,7 +8,6 @@ export class RedisService {
   constructor() {
     this.client = new Redis(config.redis.url, {
       password: config.redis.password,
-      retryDelayOnFailover: 100,
       maxRetriesPerRequest: 3,
       lazyConnect: true,
     });

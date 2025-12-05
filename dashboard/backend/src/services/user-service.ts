@@ -16,6 +16,7 @@ import {
 import { RegistrationBlacklistType } from '../types/registration';
 import { OperationLogService } from './operation-log-service';
 import { SynapseAdminService } from './synapse-admin-service';
+import { BotBridgeService } from './bot-bridge-service';
 
 interface UserProfileRow {
   readonly id: number;
@@ -50,7 +51,8 @@ export class UserService {
     private readonly databaseService: DatabaseService,
     private readonly redisService: RedisService,
     private readonly operationLogService: OperationLogService,
-    private readonly synapseAdminService: SynapseAdminService
+    private readonly synapseAdminService: SynapseAdminService,
+    private readonly botBridgeService: BotBridgeService
   ) {}
 
   async listUsers(filters: UserProfileFilter): Promise<UserProfile[]> {
@@ -164,6 +166,15 @@ export class UserService {
         synapseRequestId: provisionResult.requestId,
       },
     });
+
+    // 尝试为新用户建立与 Bot 的 DM（影子频道 welcome）
+    try {
+      await this.botBridgeService.ensureDirects([synapseUserId], 'welcome');
+    } catch (error) {
+      // 不阻断创建流程，只记录日志
+      // eslint-disable-next-line no-console
+      console.warn('ensure bot DM failed:', (error as Error).message);
+    }
 
     return {
       synapseUserId,

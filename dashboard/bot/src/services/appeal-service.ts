@@ -73,13 +73,19 @@ export class AppealService {
         ORDER BY created_at ASC
       `;
 
-      const result = await this.databaseService.query(query, [appealId]);
+      const result = await this.databaseService.query<{
+        appeal_id: string;
+        sender_id: string;
+        message: string;
+        is_from_user: boolean;
+        timestamp: string | number;
+      }>(query, [appealId]);
 
-      const messages: AppealMessage[] = result.rows.map(row => ({
+      const messages: AppealMessage[] = result.rows.map((row) => ({
         appealId: row.appeal_id,
         senderId: row.sender_id,
         message: row.message,
-        timestamp: parseInt(row.timestamp),
+        timestamp: Number(row.timestamp),
         isFromUser: row.is_from_user,
       }));
 

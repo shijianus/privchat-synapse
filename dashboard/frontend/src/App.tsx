@@ -11,6 +11,8 @@ import BansPage from './pages/BansPage';
 import AppealsPage from './pages/AppealsPage';
 import LogsPage from './pages/LogsPage';
 import SettingsPage from './pages/SettingsPage';
+import AnnouncementsPage from './pages/AnnouncementsPage';
+import ReportsPage from './pages/ReportsPage';
 import './index.css';
 
 const queryClient = new QueryClient({
@@ -47,6 +49,8 @@ function App() {
             <Route path="users" element={<UsersPage />} />
             <Route path="bans" element={<BansPage />} />
             <Route path="appeals" element={<AppealsPage />} />
+            <Route path="announcements" element={<AnnouncementsPage />} />
+            <Route path="reports" element={<ReportsPage />} />
             <Route path="logs" element={<LogsPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
